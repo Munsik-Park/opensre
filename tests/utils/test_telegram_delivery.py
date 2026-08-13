@@ -566,4 +566,10 @@ def test_composition_passthrough_bare_brackets_and_open_strike_survive_truncatio
     assert ok is True
     assert err == ""
     assert "<> 5" in captured["text"]
-    assert captured["text"].endswith("</s>")
+    # AC-strike-closed is a property of the balancer's output, not of the
+    # truncator's tail byte: truncate_for_telegram_html appends the suffix
+    # after the balanced chunk (delivery.py:88, pinned by
+    # test_truncate_for_telegram_html_balances_open_tags_within_limit and
+    # test_truncate_for_telegram_html_strips_incomplete_trailing_tag), so the
+    # closer sits before the suffix, not at the very end of the string.
+    assert captured["text"].rstrip("…").endswith("</s>")
