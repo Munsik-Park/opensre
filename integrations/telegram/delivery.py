@@ -64,7 +64,7 @@ def _balance_telegram_markup_tags(fragment: str) -> str:
             name = low[2:-1].strip().lower()
             if name in _SIMPLE_TAG_NAMES and stack and stack[-1] == name:
                 stack.pop()
-        elif not low.startswith("<a ") and low[1] != "/":
+        else:
             tokens = low[1:-1].strip().split()
             if tokens and tokens[0] in _SIMPLE_TAG_NAMES:
                 stack.append(tokens[0])

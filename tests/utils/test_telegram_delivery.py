@@ -36,6 +36,16 @@ def _mock_response(status_code: int, body: dict[str, Any]) -> MagicMock:
     return resp
 
 
+def _capturing_post_json_stub(captured: dict[str, Any]) -> Any:
+    """Build a ``post_json`` stub that records the outbound ``text`` payload."""
+
+    def _stub_post_json(url: str, payload: dict, **kw: Any) -> DeliveryResponse:
+        captured["text"] = payload["text"]
+        return DeliveryResponse(ok=True, status_code=200, data={"ok": True, "result": {}})
+
+    return _stub_post_json
+
+
 # ---------------------------------------------------------------------------
 # post_telegram_message
 # ---------------------------------------------------------------------------
@@ -530,11 +540,9 @@ def test_composition_renderer_fenced_block_truncated_mid_block_is_balanced(
     block, comes back with balanced <pre>."""
     captured: dict[str, Any] = {}
 
-    def _stub_post_json(url: str, payload: dict, **kw: Any) -> DeliveryResponse:
-        captured["text"] = payload["text"]
-        return DeliveryResponse(ok=True, status_code=200, data={"ok": True, "result": {}})
-
-    monkeypatch.setattr("integrations.telegram.delivery.post_json", _stub_post_json)
+    monkeypatch.setattr(
+        "integrations.telegram.delivery.post_json", _capturing_post_json_stub(captured)
+    )
     message = "Report\n\n```\n" + ("code line\n" * 600) + "```\n"
     target = TelegramDeliveryTarget(bot_token="tok", chat_id="chat-1")
 
@@ -553,11 +561,9 @@ def test_composition_passthrough_bare_brackets_and_open_strike_survive_truncatio
     the cut."""
     captured: dict[str, Any] = {}
 
-    def _stub_post_json(url: str, payload: dict, **kw: Any) -> DeliveryResponse:
-        captured["text"] = payload["text"]
-        return DeliveryResponse(ok=True, status_code=200, data={"ok": True, "result": {}})
-
-    monkeypatch.setattr("integrations.telegram.delivery.post_json", _stub_post_json)
+    monkeypatch.setattr(
+        "integrations.telegram.delivery.post_json", _capturing_post_json_stub(captured)
+    )
     message = "WHERE x <> 5 " + "<s>" + ("z" * 5000)
     target = TelegramDeliveryTarget(bot_token="tok", chat_id="chat-1")
 
