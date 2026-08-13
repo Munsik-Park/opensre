@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 _MESSAGE_LIMIT = MAX_MESSAGE_SIZE
 _BOT_TOKEN_RE = re.compile(r"(bot)[^/]+(/)")
-_SIMPLE_TAG_NAMES = frozenset({"b", "i", "u", "code"})
+_SIMPLE_TAG_NAMES = frozenset({"b", "i", "u", "s", "code", "pre"})
 
 
 def _strip_trailing_incomplete_tag(chunk: str) -> str:
@@ -43,7 +43,7 @@ def _strip_trailing_partial_entity(chunk: str) -> str:
 
 
 def _balance_telegram_markup_tags(fragment: str) -> str:
-    """Append closing tags for open ``b``/``i``/``u``/``code``/``a`` elements at end of *fragment*."""
+    """Append closing tags for open ``b``/``i``/``u``/``s``/``code``/``pre``/``a`` elements."""
     stack: list[str] = []
     pos = 0
     while pos < len(fragment):
@@ -65,9 +65,9 @@ def _balance_telegram_markup_tags(fragment: str) -> str:
             if name in _SIMPLE_TAG_NAMES and stack and stack[-1] == name:
                 stack.pop()
         elif not low.startswith("<a ") and low[1] != "/":
-            name = low[1:-1].strip().lower().split()[0]
-            if name in _SIMPLE_TAG_NAMES:
-                stack.append(name)
+            tokens = low[1:-1].strip().split()
+            if tokens and tokens[0] in _SIMPLE_TAG_NAMES:
+                stack.append(tokens[0])
         pos = end + 1
 
     return fragment + "".join(f"</{t}>" for t in reversed(stack))

@@ -10,11 +10,19 @@ import pytest
 
 from integrations.telegram import delivery as telegram_delivery
 from integrations.telegram.delivery import (
+    _balance_telegram_markup_tags,
     _TelegramTokenFilter,
     post_telegram_message,
     send_telegram_report,
     truncate_for_telegram_html,
 )
+from integrations.telegram.tools.telegram_send_message_tool import (
+    delivery as telegram_send_message_delivery,
+)
+from integrations.telegram.tools.telegram_send_message_tool.models import (
+    TelegramDeliveryTarget,
+)
+from platform.notifications.delivery_transport import DeliveryResponse
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -400,3 +408,162 @@ class TestDelegatesToSharedTransport:
         assert ok is False
         assert bot_token not in err
         assert "<redacted>" in err
+
+
+# ---------------------------------------------------------------------------
+# Issue #1 — unclosed <pre>/<s> at truncation cut, IndexError on bare <>
+# Traces: .autoflow/issue-1-verification-design.md,
+# .autoflow/issue-1-feature-design.md > Acceptance criteria
+# ---------------------------------------------------------------------------
+
+
+def test_balance_tags_closes_open_pre_at_cut() -> None:
+    """AC-pre-block-closed."""
+    out = _balance_telegram_markup_tags("<pre>some code")
+    assert out.count("<pre>") == out.count("</pre>")
+    assert out.endswith("</pre>")
+
+
+def test_balance_tags_closes_open_strike_at_cut() -> None:
+    """AC-strike-closed."""
+    out = _balance_telegram_markup_tags("<s>struck")
+    assert out.count("<s>") == out.count("</s>")
+    assert out.endswith("</s>")
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    ["WHERE x <> 5", "WHERE x < > 5", "WHERE x <   > 5"],
+)
+def test_balance_tags_bare_angle_span_is_inert(fragment: str) -> None:
+    """AC-bare-brackets-inert: bare-angle-pair-inert and whitespace-only-span-inert —
+    a span whose interior yields no name token does not raise and passes through
+    byte-identical."""
+    assert _balance_telegram_markup_tags(fragment) == fragment
+
+
+def test_balance_tags_real_bold_pair_survives_alongside_bare_brackets() -> None:
+    """AC-real-tags-still-balanced: real-tag-survives-non-tag-neighbour — a genuine
+    open tag in the same input as a bare <> is still balanced, and the bare span is
+    left untouched."""
+    out = _balance_telegram_markup_tags("<b>bold <> text")
+    assert out == "<b>bold <> text</b>"
+
+
+def test_balance_tags_nested_pre_code_close_innermost_first() -> None:
+    """AC-real-tags-still-balanced: nested-close-order-preserved, pre/code."""
+    assert _balance_telegram_markup_tags("<pre><code>x") == "<pre><code>x</code></pre>"
+
+
+def test_balance_tags_nested_bold_italic_close_innermost_first() -> None:
+    """AC-real-tags-still-balanced: nested-close-order-preserved, b/i (already-tracked
+    names — pins the exact closer sequence, not just membership)."""
+    assert _balance_telegram_markup_tags("<b>x<i>y") == "<b>x<i>y</i></b>"
+
+
+@pytest.mark.parametrize("fragment", ["<pre>ok</pre> tail", "</pre> stray"])
+def test_balance_tags_widened_close_branch_is_inert_on_already_balanced_pre(
+    fragment: str,
+) -> None:
+    """AC-real-tags-still-balanced: widened-close-branch-inert — the push/pop path
+    newly reached for a widened name (`pre`) is a no-op on already-balanced or
+    stray-closer input."""
+    assert _balance_telegram_markup_tags(fragment) == fragment
+
+
+def test_balance_tags_anchor_still_closes_at_cut() -> None:
+    """AC-real-tags-still-balanced: anchor-branch-untouched."""
+    out = _balance_telegram_markup_tags('<a href="https://x">link')
+    assert out == '<a href="https://x">link</a>'
+
+
+def test_balance_tags_anchor_nested_in_open_pre_still_closes() -> None:
+    """AC-real-tags-still-balanced: anchor-branch-untouched, nested inside <pre>."""
+    out = _balance_telegram_markup_tags('<pre><a href="https://x">link')
+    assert out == '<pre><a href="https://x">link</a></pre>'
+
+
+def test_balance_tags_raw_span_already_tracked_name_unchanged() -> None:
+    """AC-no-new-spurious-closer (a): no class change — an already-tracked name's
+    multi-token raw span balances byte-identically before and after the fix."""
+    assert _balance_telegram_markup_tags("attr <b foo> x") == "attr <b foo> x</b>"
+
+
+def test_balance_tags_raw_span_widened_name_gains_closer() -> None:
+    """AC-no-new-spurious-closer (b): membership change is the accepted outcome — a
+    widened name's raw span gains the matching closer after the fix."""
+    assert _balance_telegram_markup_tags("size <s m> ok") == "size <s m> ok</s>"
+
+
+def test_truncate_tight_limit_forces_room_retreat_with_balanced_pre() -> None:
+    """length-budget-holds: a limit tight enough to force the room-search retry loop
+    to retreat still converges on balanced <pre> within the limit."""
+    src = "<pre>" + ("x" * 50)
+    out = truncate_for_telegram_html(src, 15, suffix="…")
+    assert len(out) <= 15
+    assert out.count("<pre>") == out.count("</pre>")
+
+
+def test_truncate_at_production_limit_preserves_content_inside_pre() -> None:
+    """length-budget-holds: at the production 4096 limit, the payload carries
+    truncated content rather than collapsing to the suffix or content-free markup."""
+    src = "<pre>" + ("code line\n" * 500) + "</pre>"
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    assert len(out) <= 4096
+    assert out.count("<pre>") == out.count("</pre>")
+    content = out.replace("<pre>", "").replace("</pre>", "").rstrip("…")
+    assert len(content.strip()) > 100
+
+
+# ---------------------------------------------------------------------------
+# Issue #1 — composition oracle: real renderer/passthrough into real truncator,
+# driven through the production integrations/telegram/tools/telegram_send_message_tool
+# wiring (dispatch_message -> markdown_to_telegram_html -> send_telegram_report ->
+# truncate_for_telegram_html). Only the outbound HTTP transport is substituted.
+# ---------------------------------------------------------------------------
+
+
+def test_composition_renderer_fenced_block_truncated_mid_block_is_balanced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """renderer-to-truncator-composition: real renderer output, truncated mid-fenced
+    block, comes back with balanced <pre>."""
+    captured: dict[str, Any] = {}
+
+    def _stub_post_json(url: str, payload: dict, **kw: Any) -> DeliveryResponse:
+        captured["text"] = payload["text"]
+        return DeliveryResponse(ok=True, status_code=200, data={"ok": True, "result": {}})
+
+    monkeypatch.setattr("integrations.telegram.delivery.post_json", _stub_post_json)
+    message = "Report\n\n```\n" + ("code line\n" * 600) + "```\n"
+    target = TelegramDeliveryTarget(bot_token="tok", chat_id="chat-1")
+
+    ok, err = telegram_send_message_delivery.dispatch_message(message, target)
+
+    assert ok is True
+    assert err == ""
+    assert captured["text"].count("<pre>") == captured["text"].count("</pre>")
+
+
+def test_composition_passthrough_bare_brackets_and_open_strike_survive_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """passthrough-html-composition: pre-rendered HTML admitted by the passthrough
+    guard does not raise on a bare SQL <> predicate and closes an <s> left open at
+    the cut."""
+    captured: dict[str, Any] = {}
+
+    def _stub_post_json(url: str, payload: dict, **kw: Any) -> DeliveryResponse:
+        captured["text"] = payload["text"]
+        return DeliveryResponse(ok=True, status_code=200, data={"ok": True, "result": {}})
+
+    monkeypatch.setattr("integrations.telegram.delivery.post_json", _stub_post_json)
+    message = "WHERE x <> 5 " + "<s>" + ("z" * 5000)
+    target = TelegramDeliveryTarget(bot_token="tok", chat_id="chat-1")
+
+    ok, err = telegram_send_message_delivery.dispatch_message(message, target)
+
+    assert ok is True
+    assert err == ""
+    assert "<> 5" in captured["text"]
+    assert captured["text"].endswith("</s>")
