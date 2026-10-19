@@ -1216,10 +1216,10 @@ class KubernetesIntegrationConfig(StrictConfigModel):
 
     ``kubeconfig_path`` takes precedence over ``kubeconfig`` at connection time.
 
-    ``namespaces`` is the optional allowlist: with at least one entry the tools
-    may also query those namespaces besides ``namespace``; empty means
-    ``namespace`` only. A value that is neither a string nor a list reads as no
-    allowlist: failing validation instead would drop the whole integration.
+    ``namespaces`` is the optional namespace allowlist, reachable together with
+    ``namespace``; empty means no allowlist. A value that is neither a string nor
+    a list reads as no allowlist: failing validation instead would drop the whole
+    integration.
     """
 
     kubeconfig: str = ""

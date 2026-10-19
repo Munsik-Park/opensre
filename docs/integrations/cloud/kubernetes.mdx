@@ -85,7 +85,7 @@ KUBECONFIG_NAMESPACES=staging,payments
 - The default namespace stays reachable whether or not you list it, and a call that names no namespace uses it. With the example above, the agent may query `opensre`, `staging`, and `payments`.
 - If the default namespace is on the list, the agent may query exactly the listed namespaces.
 - A call that names any other namespace is refused before it reaches the cluster; the error lists the namespaces the agent may use.
-- The allowlist comes from the same configuration as the default namespace. When a stored or web-app `kubernetes` record is in effect, only its allowlist applies and `KUBECONFIG_NAMESPACES` is ignored; a record without one means no allowlist. Chat sessions read the `KUBECONFIG_*` variables only when the store has no records at all.
+- The allowlist comes from the same configuration as the default namespace. When a stored or web-app `kubernetes` record is in effect, only its allowlist applies and `KUBECONFIG_NAMESPACES` is ignored; a record without one means no allowlist.
 - It bounds the `kubernetes_*` tools only. The EKS and Helm tools keep their own namespace scope.
 - It does not grant access: RBAC still decides what the credentials can read. `opensre integrations verify` checks the default namespace only, so an RBAC denial on a listed namespace shows up on the first tool call against it.
 

@@ -245,7 +245,7 @@ def test_a_stored_record_without_an_allowlist_is_not_widened_by_the_env_allowlis
     assert cluster == [("client", "opensre"), ("list_pods", "opensre")]
 
 
-# More reachable names than a schema-validation hint would list.
+# Thirteen allowlisted names besides the default: the refusal must list them all.
 _LISTED = tuple(f"team-{index:02d}" for index in range(13))
 _REACHABLE = ("default", *_LISTED)
 
