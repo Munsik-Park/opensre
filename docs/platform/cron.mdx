@@ -222,8 +222,8 @@ Standard 5-field cron expressions:
 such as `mon-fri` work too.
 
 Month names (`jan`–`dec`) work the same way in the month field. In both fields
-a name works anywhere a number does, and a step after a name counts as it does
-after the number: `mon-fri/2` runs Monday, Wednesday and Friday, `sun-sat/2`
+a name can stand alone or at either end of a range, and a step after it counts
+as it does after the number; the step itself is always a number: `mon-fri/2` runs Monday, Wednesday and Friday, `sun-sat/2`
 runs Sunday, Tuesday, Thursday and Saturday, `mon-5` runs Monday to Friday, and
 `jan-dec/3` runs in January, April, July and October. Write the three-letter
 name: a full name such as `monday`, or text after a name that is not a range
