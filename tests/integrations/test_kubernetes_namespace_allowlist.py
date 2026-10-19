@@ -50,7 +50,7 @@ _NAMESPACED_TOOLS: dict[str, dict[str, Any]] = {
 _LIST_NODES = "kubernetes_list_nodes"
 _CONNECTION_FIELDS = frozenset({"kubeconfig", "kubeconfig_path", "context"})
 _KUBECONFIG_PATH = "/tmp/opensre-test-kubeconfig"
-# The developer's real ``.env`` is loaded for the whole session; any of these
+# An ambient value for any of these, such as a developer's ``.env`` supplies,
 # would add a kubernetes record or switch resolution to a remote source.
 _AMBIENT_ENV = (
     "KUBECONFIG",
