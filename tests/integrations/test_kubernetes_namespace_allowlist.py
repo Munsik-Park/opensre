@@ -50,6 +50,7 @@ _NAMESPACED_TOOLS: dict[str, dict[str, Any]] = {
 _LIST_NODES = "kubernetes_list_nodes"
 _CONNECTION_FIELDS = frozenset({"kubeconfig", "kubeconfig_path", "context"})
 _KUBECONFIG_PATH = "/tmp/opensre-test-kubeconfig"
+_USABLE = "Namespaces it may use: "
 # An ambient value for any of these, such as a developer's ``.env`` supplies,
 # would add a kubernetes record or switch resolution to a remote source.
 _AMBIENT_ENV = (
@@ -159,9 +160,10 @@ def _assert_offers(tools: list[Any], *, default: str, reachable: tuple[str, ...]
 
 def _assert_refused(result: ToolExecutionResult, reachable: tuple[str, ...]) -> None:
     assert result.is_error, "a namespace outside the allowlist was not refused"
-    content = str(result.content)
-    missing = [ns for ns in reachable if ns not in content]
-    assert not missing, f"the refusal does not name {missing}"
+    _, listed, rest = str(result.content).partition(_USABLE)
+    assert listed, "the refusal does not list the namespaces it may use"
+    named = {entry.removesuffix(" (default)") for entry in rest.split(". ", 1)[0].split(", ")}
+    assert named == set(reachable), f"the refusal names {sorted(named)}, not {sorted(reachable)}"
 
 
 def test_a_stored_allowlist_follows_its_record_on_the_same_session(
