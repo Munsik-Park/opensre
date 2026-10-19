@@ -303,6 +303,7 @@ _SUBMITTED: dict[str, dict[str, str]] = {
         "kubeconfig": "",
         "context": "checkout-prod",
         "namespace": "opensre",
+        "namespaces": "staging , ,payments",
     },
 }
 

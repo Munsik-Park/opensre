@@ -3,7 +3,8 @@
 Kubeconfig can be a file path *or* pasted inline YAML. A picker scopes which
 of those two is collected; the either/or rule lives in the Kubernetes client
 probe (``is_configured`` / ``missing``), so setup and health checks agree for
-any surface that skips the picker. Context and namespace are always asked.
+any surface that skips the picker. Context, the default namespace and the
+optional namespace allowlist are always asked.
 
 Inline YAML is mirrored to the keyring (it embeds bearer tokens / client keys);
 the file-path field stays in ``.env``.
@@ -15,6 +16,7 @@ from config.constants.kubernetes import (
     KUBECONFIG_CONTENT_ENV,
     KUBECONFIG_CONTEXT_ENV,
     KUBECONFIG_NAMESPACE_ENV,
+    KUBECONFIG_NAMESPACES_ENV,
     KUBECONFIG_PATH_ENV,
 )
 from integrations.kubernetes.verifier import verify_kubernetes
@@ -24,6 +26,7 @@ KUBECONFIG_PATH_FIELD = "kubeconfig_path"
 KUBECONFIG_FIELD = "kubeconfig"
 CONTEXT_FIELD = "context"
 NAMESPACE_FIELD = "namespace"
+NAMESPACES_FIELD = "namespaces"
 
 KUBERNETES_SETUP = IntegrationSetupSpec(
     service="kubernetes",
@@ -61,6 +64,16 @@ KUBERNETES_SETUP = IntegrationSetupSpec(
             env_var=KUBECONFIG_NAMESPACE_ENV,
             default="default",
         ),
+        SetupField(
+            name=NAMESPACES_FIELD,
+            label="Namespace allowlist",
+            prompt=(
+                "Namespaces the agent may also query besides the default, comma-separated "
+                "(optional; leave empty to query only the default namespace)"
+            ),
+            env_var=KUBECONFIG_NAMESPACES_ENV,
+            required=False,
+        ),
     ),
     mode_prompt="Kubeconfig source:",
     modes=(
@@ -84,4 +97,5 @@ __all__ = [
     "KUBECONFIG_PATH_FIELD",
     "KUBERNETES_SETUP",
     "NAMESPACE_FIELD",
+    "NAMESPACES_FIELD",
 ]

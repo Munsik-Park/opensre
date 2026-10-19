@@ -116,6 +116,7 @@ from config.constants.kubernetes import (
     KUBECONFIG_CONTENT_ENV,
     KUBECONFIG_CONTEXT_ENV,
     KUBECONFIG_NAMESPACE_ENV,
+    KUBECONFIG_NAMESPACES_ENV,
     KUBECONFIG_PATH_ENV,
 )
 from config.constants.mariadb import (
@@ -1810,6 +1811,7 @@ def load_env_integrations() -> list[dict[str, Any]]:
                     "context": os.getenv(KUBECONFIG_CONTEXT_ENV, "").strip(),
                     "namespace": os.getenv(KUBECONFIG_NAMESPACE_ENV, "default").strip()
                     or "default",
+                    "namespaces": os.getenv(KUBECONFIG_NAMESPACES_ENV, ""),
                 }
             )
             integrations.append(

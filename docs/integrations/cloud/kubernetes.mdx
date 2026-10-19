@@ -25,6 +25,7 @@ The wizard will ask for:
 1. **kubeconfig** — paste the raw kubeconfig YAML, or provide a file path that will be read and stored inline
 2. **Context** — optional; leave blank to use the kubeconfig's current context
 3. **Default namespace** — defaults to `default`
+4. **Namespace allowlist** — optional; other namespaces the agent may query, comma-separated (see [Namespace allowlist](#namespace-allowlist))
 
 ### Option 2: Environment variables
 
@@ -38,11 +39,12 @@ KUBECONFIG_CONTENT="$(cat ~/.kube/config)"
 # Optional overrides
 KUBECONFIG_CONTEXT=my-context
 KUBECONFIG_NAMESPACE=production
+KUBECONFIG_NAMESPACES=staging,payments
 ```
 
 ### Option 3: Persistent store
 
-Store an active `kubernetes` record in `~/.opensre/integrations.json` with kubeconfig content (or path resolved into content by setup), plus optional context and namespace.
+Store an active `kubernetes` record in `~/.opensre/integrations.json` with kubeconfig content (or path resolved into content by setup), plus optional context, namespace, and `namespaces` (the namespace allowlist).
 
 ## Credentials
 
@@ -51,6 +53,7 @@ Store an active `kubernetes` record in `~/.opensre/integrations.json` with kubec
 | `kubeconfig` | `KUBECONFIG_CONTENT` or read from `KUBECONFIG` | — | Raw kubeconfig YAML (required) |
 | `context` | `KUBECONFIG_CONTEXT` | current context | Kubeconfig context to activate |
 | `namespace` | `KUBECONFIG_NAMESPACE` | `default` | Default namespace for tool queries |
+| `namespaces` | `KUBECONFIG_NAMESPACES` | — | Optional namespace allowlist, comma-separated (see below) |
 
 The kubeconfig's service account or user needs these Kubernetes RBAC permissions:
 
@@ -66,6 +69,25 @@ rules:
     resources: ["ingresses"]
     verbs: ["get", "list"]
 ```
+
+## Namespace allowlist
+
+Without an allowlist, the Kubernetes tools query only the default namespace, whatever namespace you name in the chat.
+
+To let the agent investigate other namespaces, list them in `KUBECONFIG_NAMESPACES`, at the wizard's **Namespace allowlist** prompt, or as `namespaces` in the stored record:
+
+```bash
+KUBECONFIG_NAMESPACE=opensre
+KUBECONFIG_NAMESPACES=staging,payments
+```
+
+- The allowlist is optional. Separate names with commas; surrounding whitespace and empty entries are ignored. Names match exactly, including case.
+- The default namespace stays reachable whether or not you list it, and a call that names no namespace uses it. With the example above, the agent may query `opensre`, `staging`, and `payments`.
+- If the default namespace is on the list, the agent may query exactly the listed namespaces.
+- A call that names any other namespace is refused before it reaches the cluster; the error lists the namespaces the agent may use.
+- The allowlist comes from the same configuration as the default namespace. When a stored or web-app `kubernetes` record is in effect, only its allowlist applies and `KUBECONFIG_NAMESPACES` is ignored; a record without one means no allowlist.
+- It bounds the `kubernetes_*` tools only. The EKS and Helm tools keep their own namespace scope.
+- It does not grant access: RBAC still decides what the credentials can read. `opensre integrations verify` checks the default namespace only, so an RBAC denial on a listed namespace shows up on the first tool call against it.
 
 ## Tools
 
@@ -90,9 +112,9 @@ rules:
 > What's wrong with the payments-api pod in the production namespace?
 ```
 
-OpenSRE will:
+With `production` as the default namespace or on the [namespace allowlist](#namespace-allowlist), OpenSRE will:
 
-1. Call `kubernetes_list_pods` scoped to `production` to find pods with high restart counts
+1. Call `kubernetes_list_pods` in `production` to find pods with high restart counts
 2. Call `kubernetes_get_pod_logs` to read recent container output
 3. Call `kubernetes_get_events` with `involvedObject.name=payments-api` to surface Warning events
 4. Correlate the evidence into a root-cause summary
@@ -288,7 +310,7 @@ unset OPENSRE_DEMO_STORE_DIR OPENSRE_INTEGRATIONS_STORE_PATH KUBECONFIG_CONTENT 
 opensre integrations verify kubernetes
 ```
 
-A successful verification lists the namespaces visible to the configured credentials.
+Verification checks access to the default namespace only; namespaces on the allowlist are not probed.
 
 Inside the REPL: `/integrations verify kubernetes` or `/verify kubernetes`.
 
@@ -299,6 +321,7 @@ Inside the REPL: `/integrations verify kubernetes` or `/verify kubernetes`.
 | **Status: missing** | Run `opensre integrations setup kubernetes` or set `KUBECONFIG` / `KUBECONFIG_CONTENT` |
 | **Unauthorized / Forbidden** | Confirm the kubeconfig user/service account has the RBAC verbs listed under Credentials |
 | **Wrong cluster or namespace** | Set `KUBECONFIG_CONTEXT` and `KUBECONFIG_NAMESPACE`, or re-run setup |
+| **Agent stays in the default namespace, or refuses a namespace** | Without an allowlist the tools query only the default namespace. Add the namespace to the allowlist of the configuration in effect — a stored or web-app record replaces `KUBECONFIG_NAMESPACES` |
 | **Cannot reach API server** | Check VPN / network path to the cluster endpoint in the kubeconfig |
 
 ## Security

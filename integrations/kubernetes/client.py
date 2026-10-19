@@ -187,8 +187,8 @@ class KubernetesClient:
         (cluster-wide). Cluster-wide calls require a ClusterRole binding which
         is unavailable on GKE Workload Identity, AKS Managed Identity, on-prem
         Role bindings, and k3s restricted configs — all typical targets for this
-        integration. Every investigation tool is namespace-scoped, so a
-        namespace-scoped probe accurately reflects real access.
+        integration. Only the default namespace is probed; allowlisted namespaces
+        are not.
         """
         if not self.is_configured:
             return ProbeResult.missing("Missing kubeconfig or kubeconfig_path.")
