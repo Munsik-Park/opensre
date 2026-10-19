@@ -221,7 +221,13 @@ def test_an_env_allowlist_ignores_surrounding_whitespace_and_empty_entries(
 
     _assert_offers(tools, default="opensre", reachable=("opensre", "staging", "payments"))
     _call(tools, resolved, "kubernetes_list_pods", namespace="payments")
-    assert cluster == [("client", "payments"), ("list_pods", "payments")]
+    _call(tools, resolved, "kubernetes_list_pods")
+    assert cluster == [
+        ("client", "payments"),
+        ("list_pods", "payments"),
+        ("client", "opensre"),
+        ("list_pods", "opensre"),
+    ]
 
 
 def test_a_stored_record_without_an_allowlist_is_not_widened_by_the_env_allowlist(
