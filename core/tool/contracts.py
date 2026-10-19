@@ -460,6 +460,15 @@ class BaseTool(ABC):
         """
         return {}
 
+    def turn_view(self, tool: RegisteredTool, _sources: dict[str, dict]) -> RegisteredTool:
+        """Return ``tool`` as one turn presents and runs it, given that turn's sources.
+
+        Override per tool. Default returns ``tool`` unchanged. An override returns
+        a ``dataclasses.replace`` copy and never mutates ``tool``: it is the
+        process-wide registry instance that concurrent turns share.
+        """
+        return tool
+
 
 REGISTERED_TOOL_ATTR = "__opensre_registered_tool__"
 #: ``error_kind`` of a result whose tool refused the request on its own rules.
@@ -479,6 +488,10 @@ def _always_available(_sources: dict[str, dict]) -> bool:
 
 def _extract_no_params(_sources: dict[str, dict]) -> dict[str, Any]:
     return {}
+
+
+def _unchanged_turn_view(tool: RegisteredTool, _sources: dict[str, dict]) -> RegisteredTool:
+    return tool
 
 
 def _normalize_surfaces(surfaces: Iterable[ToolSurface] | None) -> tuple[ToolSurface, ...]:
@@ -518,6 +531,11 @@ class RegisteredTool:
     )
     extract_params: Callable[[dict[str, dict]], dict[str, Any]] = field(
         default=_extract_no_params,
+        repr=False,
+    )
+    #: ``tool.turn_view(tool, sources)`` returns the tool as that turn presents and runs it.
+    turn_view: Callable[[RegisteredTool, dict[str, dict]], RegisteredTool] = field(
+        default=_unchanged_turn_view,
         repr=False,
     )
     tags: tuple[str, ...] = ()
@@ -681,6 +699,7 @@ class RegisteredTool:
             ),
             is_available=tool.is_available,
             extract_params=tool.extract_params,
+            turn_view=tool.turn_view,
             tags=resolved_tags,
             requires_approval=bool(
                 requires_approval

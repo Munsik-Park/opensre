@@ -1215,12 +1215,18 @@ class KubernetesIntegrationConfig(StrictConfigModel):
       config is embedded, e.g. from a secrets manager or stored integration).
 
     ``kubeconfig_path`` takes precedence over ``kubeconfig`` at connection time.
+
+    ``namespaces`` is the optional allowlist: with at least one entry the tools
+    may also query those namespaces besides ``namespace``; empty means
+    ``namespace`` only. A value that is neither a string nor a list reads as no
+    allowlist: failing validation instead would drop the whole integration.
     """
 
     kubeconfig: str = ""
     kubeconfig_path: str = ""
     context: str = ""
     namespace: str = "default"
+    namespaces: list[str] = []
     integration_id: str = ""
 
     _normalize_strs = field_validator(
@@ -1229,6 +1235,15 @@ class KubernetesIntegrationConfig(StrictConfigModel):
     _normalize_namespace = field_validator("namespace", mode="before")(
         normalize_with_default("default")
     )
+
+    @field_validator("namespaces", mode="before")
+    @classmethod
+    def _normalize_namespaces(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        if isinstance(value, list):
+            return [str(part).strip() for part in value if str(part).strip()]
+        return []
 
     @property
     def is_configured(self) -> bool:

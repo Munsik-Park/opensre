@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
-from core.tool import BaseTool
+from core.tool import BaseTool, RegisteredTool
 from core.tool_framework.utils import tool_unavailable
 from integrations.config_models import KubernetesIntegrationConfig
 from integrations.kubernetes.client import _RESOURCE_DISPATCH, KubernetesClient
+from integrations.kubernetes.tools._namespace_scope import namespace_scoped_view
 
 _RESOURCE_TYPE_ENUM: list[str] = sorted(_RESOURCE_DISPATCH.keys())
 
@@ -102,6 +103,9 @@ class KubernetesListPodsTool(BaseTool):
 
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
+
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
 
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
@@ -207,6 +211,9 @@ class KubernetesGetPodLogsTool(BaseTool):
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
 
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
+
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
         return {
@@ -308,6 +315,9 @@ class KubernetesListDeploymentsTool(BaseTool):
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
 
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
+
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
         return {
@@ -403,6 +413,9 @@ class KubernetesGetEventsTool(BaseTool):
 
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
+
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
 
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
@@ -501,6 +514,9 @@ class KubernetesDescribePodTool(BaseTool):
 
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
+
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
 
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
@@ -688,6 +704,9 @@ class KubernetesListServicesTool(BaseTool):
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
 
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
+
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
         return {
@@ -778,6 +797,9 @@ class KubernetesListStatefulSetsTool(BaseTool):
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
 
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
+
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
         return {
@@ -864,6 +886,9 @@ class KubernetesListDaemonSetsTool(BaseTool):
 
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
+
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
 
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
@@ -953,6 +978,9 @@ class KubernetesListIngressesTool(BaseTool):
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
 
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
+
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
         return {
@@ -1040,6 +1068,9 @@ class KubernetesListConfigMapsTool(BaseTool):
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
 
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
+
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
         return {
@@ -1103,8 +1134,8 @@ class KubernetesGetResourceTool(BaseTool):
         "replicaset), same as kubernetes_describe_pod. For POD detail specifically, "
         "prefer kubernetes_describe_pod instead — it returns the same redacted data in "
         "a curated, investigation-shaped view (container states, owner references) "
-        "rather than the raw API object. The namespace field is ignored for "
-        "cluster-scoped types like node."
+        "rather than the raw API object. Omit namespace for cluster-scoped types "
+        "like node."
     )
     use_cases = [
         "Fetching the full YAML-equivalent of any non-pod named resource for deep inspection",
@@ -1145,6 +1176,9 @@ class KubernetesGetResourceTool(BaseTool):
 
     def is_available(self, sources: dict[str, Any]) -> bool:
         return _is_available(sources)
+
+    def turn_view(self, tool: RegisteredTool, sources: dict[str, Any]) -> RegisteredTool:
+        return namespace_scoped_view(tool, sources)
 
     def extract_params(self, sources: dict[str, Any]) -> dict[str, Any]:
         k8s = sources["kubernetes"]
