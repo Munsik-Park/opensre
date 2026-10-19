@@ -134,10 +134,12 @@ def _parameters(tools: list[Any], name: str) -> dict[str, Any]:
 
 
 def _call(
-    tools: list[Any], resolved: dict[str, Any], name: str, **arguments: Any
+    tools: list[Any], resolved: dict[str, Any], tool_name: str, /, **arguments: Any
 ) -> ToolExecutionResult:
-    call = ToolCall(id="call-1", name=name, input={**_NAMESPACED_TOOLS[name], **arguments})
-    [result] = execute_tool_calls([call], tools, resolved)
+    model_input = {**_NAMESPACED_TOOLS[tool_name], **arguments}
+    [result] = execute_tool_calls(
+        [ToolCall(id="call-1", name=tool_name, input=model_input)], tools, resolved
+    )
     return result
 
 
