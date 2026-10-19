@@ -27,7 +27,7 @@ from core.agent_harness.tools.action_tools import get_action_tools_from_integrat
 from core.agent_harness.tools.tool_provider import DefaultToolProvider
 from core.llm.shared.tool_schema_normalize import build_openai_tool_specs
 from core.llm.types import ToolCall
-from core.tool import LiveToolCatalog, ToolExecutionResult
+from core.tool import LiveToolCatalog, RegisteredTool, ToolExecutionResult
 from core.tool.execution import execute_tool_calls
 from integrations.kubernetes import classify
 from integrations.store import upsert_integration
@@ -120,7 +120,9 @@ def _turn(session: Session) -> tuple[list[Any], dict[str, Any]]:
     listed = provider.action_tools(confirm_fn=None, is_tty=False, resolved_integrations=resolved)
     search = next(tool for tool in listed if tool.name == TOOL_SEARCH_NAME)
     search.run(names=[*_NAMESPACED_TOOLS, _LIST_NODES])
-    catalog = LiveToolCatalog.from_resources(provider.tool_resources())
+    catalog: LiveToolCatalog[RegisteredTool] | None = LiveToolCatalog.from_resources(
+        provider.tool_resources()
+    )
     assert catalog is not None
     return list(catalog.snapshot()), resolved
 
