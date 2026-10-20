@@ -25,6 +25,11 @@ from infrastructure.safety.masking.policy import MaskingPolicy, compile_extra_pa
 # token; dict lookup restores known ones and leaves unknown angle-brackets alone.
 _PLACEHOLDER_TOKEN_RE = re.compile(r"<[^<>]+>")
 
+# A token with a placeholder's shape. One a source text already holds is not this
+# run's: a masked cut hands it back as written, never as the mapping's original.
+_PLACEHOLDER_SHAPE_RE = re.compile(r"<[A-Z0-9_]+_[0-9]+>")
+_PRIVATE_USE_AREA = range(0xE000, 0xF900)
+
 # Characters that continue an identifier token, so a known value is replaced
 # only where it stands alone: ``privacy-test`` in ``privacy-test/pod`` but not
 # inside ``privacy-test-7b5b4cbd55-abcde``.
@@ -275,16 +280,35 @@ class MaskingRules:
         """``cut`` made on ``text`` masked, with the kept text restored.
 
         ``text`` comes back whole when ``cut`` keeps it or its masked form whole,
-        so a cut can split a placeholder but never an identifier. ``cut(text)``
-        when disabled.
+        so a cut can split a placeholder but never an identifier. Only placeholders
+        this masking wrote are restored: a placeholder-shaped token ``text``
+        already held comes back as written. ``cut(text)`` when disabled.
         """
         if not self.policy.enabled:
             return cut(text)
         if cut(text) == text:
             return text
-        (masked,) = self.mask_batch([text])
+        literals = frozenset(_PLACEHOLDER_SHAPE_RE.findall(text))
+        stand_in = _free_character(text) if literals else None
+        source = text if stand_in is None else _hide_literals(text, stand_in)
+        (masked,) = self.mask_batch([source])
         kept = cut(masked)
-        return text if kept == masked else self.unmask(kept)
+        if kept == masked:
+            return text
+        if stand_in is not None:
+            return self.unmask(kept).replace(stand_in, "<")
+        if literals:
+            # No free stand-in, so a literal and a placeholder written here look alike;
+            # neither is restored.
+            mapping = {
+                token: original
+                for token, original in self._placeholder_map.items()
+                if token not in literals
+            }
+            return _PLACEHOLDER_TOKEN_RE.sub(
+                lambda match: mapping.get(match.group(0), match.group(0)), kept
+            )
+        return self.unmask(kept)
 
     def mask_batch(
         self,
@@ -407,6 +431,17 @@ class MaskingRules:
 
 def _identity(text: str) -> str:
     return text
+
+
+def _free_character(text: str) -> str | None:
+    """A private-use character ``text`` lacks, to stand in for a literal placeholder's ``<``."""
+    used = set(text)
+    return next((chr(code) for code in _PRIVATE_USE_AREA if chr(code) not in used), None)
+
+
+def _hide_literals(text: str, stand_in: str) -> str:
+    """``text`` with each placeholder-shaped token's ``<`` written as ``stand_in``."""
+    return _PLACEHOLDER_SHAPE_RE.sub(lambda match: stand_in + match.group(0)[1:], text)
 
 
 def _distinct_shape(value: str) -> bool:
