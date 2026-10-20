@@ -558,7 +558,10 @@ which owns the actual think → call-tools → observe algorithm.
   can leave part of an identifier that no detector recognizes.
   `MaskingRules.cut_masked` makes a cut on the masked form and restores the
   kept text; `core.tool.truncate_output_text_masked` is that cut for the
-  tool-output budget.
+  tool-output budget. Where the request's other text is at hand, pass it as
+  `context`, so a value labelled only there is masked in the cut text too (the
+  gateway's attachment cuts see their message through
+  `message_with_attachments`).
 - `core/agent/run_io.py` — `AgentRunInput` (resolved per-run inputs) and
   `AgentRunResult` (the loop's outcome). `core.agent` re-exports `AgentRunResult`
   for the `from core.agent import AgentRunResult` path.
