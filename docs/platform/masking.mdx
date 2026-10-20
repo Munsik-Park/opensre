@@ -7,39 +7,82 @@ description: "Reversible masking of pod, cluster, and account identifiers before
 
 OpenSRE can mask sensitive infrastructure identifiers (pod names, cluster names,
 hostnames, account IDs, service names, IP addresses, emails) **before** sending
-text to an external LLM, then restore the originals in user-facing output. Teams
-can use external models while keeping raw identifiers inside the agent runtime.
+text to an external LLM, then restore the originals in what you see and what is
+stored. Teams can use external models while keeping raw identifiers inside the
+agent runtime.
 
 Masking is **off by default**. Turn it on with environment variables — no code
-changes required.
+changes required. Settings are read once per turn, so a change applies on the
+next turn without a restart.
 
-## How it works
+## What is masked
 
-1. When masking is enabled, call sites that send text to an external model
-   replace identifiers with stable placeholders such as `<POD_0>`,
-   `<NAMESPACE_0>`, or `<CLUSTER_1>`. The placeholder → original map can be
-   stored in session state as `masking_map`.
-2. The model sees masked text, so raw identifiers are not sent in that payload.
-3. Where a map is present, OpenSRE restores real identifiers in downstream state
-   and display output.
-4. Message delivery (for example Slack) can run a final unmask pass before
-   sending, as defence in depth.
+When masking is on, every request OpenSRE sends to an LLM provider carries
+placeholders such as `<POD_0>`, `<NAMESPACE_0>` or `<CLUSTER_1>` instead of the
+identifiers. This holds for CLI-backed providers (Copilot CLI, Claude Code,
+Codex and the other CLI adapters) and for hosted API providers (Anthropic,
+OpenAI and OpenAI-compatible providers, Bedrock, LiteLLM), for agent turns and
+for the background requests: goal checks, memory, conversation summaries,
+knowledge scans and the daily update.
 
-The same identifier always maps to the same placeholder within one session,
-so reasoning about `<POD_0>` stays consistent.
+Masked:
 
-Today, masking is applied at opt-in edges (for example selected GitHub / Sentry
-fix tools and CLI agent-exec paths) rather than as a single central step on
-every LLM call. Output still unmasks when a map is present. Env policy
-is read when masking runs — changes apply on the next run without a restart.
+- your message and earlier turns of the conversation;
+- tool results, and the tool arguments replayed in later requests;
+- environment content in the system prompt: setup state, connected integrations,
+  repository context, workspace knowledge and long-term memory.
+
+Sent as written: OpenSRE's own instructions, the tool definitions, the built-in
+system prompt and skill text.
+
+A namespace, cluster or service name is detected after its label, written as
+text (`namespace: payments`, `in namespace payments`) or as a structured field
+(`"namespace": "payments"`).
+
+## Where originals come back
+
+- Tool arguments are restored before the tool runs, so queries, approvals and
+  hooks use the real identifiers.
+- The model's reply is restored before it is shown.
+- Conversation summaries, memories, knowledge-scan notes and failed-turn errors
+  are restored before they are stored or shown.
+
+One mapping covers one agent turn — or every turn of one `/goal` run, with its
+goal checks. It is never shared between sessions and is discarded when the turn
+or the `/goal` run ends, so the same pod can be `<POD_0>` in one turn and
+`<POD_1>` in the next.
+
+## Plain names
+
+A namespace, cluster or service name that is an ordinary word (`payments`) or
+has no letters (`503`) is masked where a label marks it. Within a turn it is also
+replaced in unlabelled forms — a table cell, a path, a command flag — only:
+
+- from the request in which it appears with `:` or `=` after its label
+  (`namespace: payments`) or as a structured field (`"namespace": "payments"`);
+- from the request after the agent passes it to a tool.
+
+A label followed only by a space does not start this. To replace a plain name in
+every form from the first request, name it in `OPENSRE_MASK_EXTRA_REGEX`, for
+example `'{"ns_name": "\\\\bpayments\\\\b"}'`.
 
 ## Environment variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OPENSRE_MASK_ENABLED` | `false` | Master switch. Set to `true` / `1` / `yes` / `on` to activate masking. |
-| `OPENSRE_MASK_KINDS` | `pod,namespace,cluster,hostname,account_id,ip_address,email,service_name` | Comma-separated list of identifier kinds to mask. Unknown kinds are ignored with a warning. Empty value uses all defaults. |
+| `OPENSRE_MASK_KINDS` | `pod,namespace,cluster,hostname,account_id,ip_address,email,service_name` | Comma-separated list of identifier kinds to mask, matched without regard to case. Empty value masks every kind. |
 | `OPENSRE_MASK_EXTRA_REGEX` | *(empty)* | Optional JSON object mapping a label → regex for custom identifiers. Example: `'{"jira_key": "\\\\b[A-Z]+-\\\\d+\\\\b"}'`. Group 1 of the regex, if present, defines the span to mask. |
+
+While masking is on, an invalid setting stops the request and the turn ends with
+an error naming the setting: an `OPENSRE_MASK_EXTRA_REGEX` that is not a JSON
+object of valid regexes, or an `OPENSRE_MASK_KINDS` entry that names no kind —
+whatever the other entries name. Fix the setting and send the message again.
+
+<Note>
+An `OPENSRE_MASK_KINDS` list written in upper case (`POD,NAMESPACE`) used to
+mask every kind. It now masks only the kinds it names.
+</Note>
 
 ## Built-in identifier kinds
 
@@ -54,22 +97,31 @@ is read when masking runs — changes apply on the next run without a restart.
 | `ip_address` | `192.168.1.50` | `<IP_ADDRESS_0>` |
 | `email` | `alice@example.com` | `<EMAIL_0>` |
 
+## What is not masked
+
+- Image bytes sent to a vision model. The text description it returns is masked
+  like any other content.
+- Files a CLI provider's binary reads on its own from its working directory.
+- Prompt-log events.
+- The coding-agent tasks of `resolve_merge_conflicts` and `code_implement`. The
+  `fix_github_pr_ci`, `fix_github_security_alert` and `fix_sentry_issue` tasks
+  are masked when they are built.
+
 ## Round-trip guarantee
 
 For the built-in detectors and extra regex patterns, `mask → unmask` restores
-the original payload byte-for-byte. See
-`tests/masking/test_integration_with_k8s_fixture.py` for a worked example against
-a realistic Datadog Kubernetes alert.
+the original text byte-for-byte.
 
 ## Relationship to guardrails
 
 Masking is complementary to the one-way `GuardrailEvaluator`. Guardrails handle
 hard-block rules (credit cards, API keys) and replace matches with `[REDACTED]`
 irreversibly. Masking handles infrastructure identifiers reversibly so they can
-be restored for user-facing output.
+be restored for tools and for what you see.
 
-Both can be active together: guardrails apply at the LLM client layer;
-masking applies at the call sites that opt in.
+Guardrails apply at the LLM client layer to the already masked request, so a
+guardrail rule never sees a value masking replaced. To keep a kind under a
+one-way guardrail rule instead, leave it out of `OPENSRE_MASK_KINDS`.
 
 ## Example
 
@@ -79,6 +131,5 @@ export OPENSRE_MASK_KINDS=pod,namespace,cluster,hostname
 opensre ask "why is the checkout pod crash-looping?"
 ```
 
-When masking runs on a call path, the LLM sees masked identifiers; output
-paths that unmask show the original pod, namespace, and cluster names in the
-final answer.
+The LLM sees placeholders; the final answer shows the original pod, namespace
+and cluster names.
