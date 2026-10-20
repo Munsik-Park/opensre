@@ -34,6 +34,7 @@ _PRIVATE_USE_AREA = range(0xE000, 0xF900)
 # only where it stands alone: ``privacy-test`` in ``privacy-test/pod`` but not
 # inside ``privacy-test-7b5b4cbd55-abcde``.
 _TOKEN_CHARS = r"A-Za-z0-9_\-"
+_TOKEN_CHAR_RE = re.compile(rf"[{_TOKEN_CHARS}]")
 
 # A value captured only after a whitespace label propagates when its shape sets
 # it apart from a word: at least one letter with a digit or one of these.
@@ -218,24 +219,75 @@ class MaskingRules:
 
         ``keys`` also restores string dict keys.
         """
+        return self._unmask_walk(value, self.unmask, keys=keys)
+
+    def unmask_resent(self, value: Any) -> Any:
+        """``unmask_value`` for content that later requests send again.
+
+        A placeholder is restored only where those requests mask its original again:
+        inside a detection of the restored text, or standing alone when the original
+        propagates. Any other placeholder-shaped token stays as written, since its
+        original would be sent in the clear.
+        """
+        return self._unmask_walk(value, self._unmask_resent_text, keys=False)
+
+    def _unmask_walk(self, value: Any, restore: Callable[[str], str], *, keys: bool) -> Any:
         if not self._placeholder_map:
             return value
         if isinstance(value, str):
-            return self.unmask(value)
+            return restore(value)
         if isinstance(value, BaseModel):
-            return type(value).model_validate(self.unmask_value(value.model_dump(), keys=keys))
+            return type(value).model_validate(
+                self._unmask_walk(value.model_dump(), restore, keys=keys)
+            )
         if isinstance(value, dict):
             return {
-                (self.unmask(k) if keys and isinstance(k, str) else k): self.unmask_value(
-                    v, keys=keys
+                (restore(k) if keys and isinstance(k, str) else k): self._unmask_walk(
+                    v, restore, keys=keys
                 )
                 for k, v in value.items()
             }
         if isinstance(value, list):
-            return [self.unmask_value(v, keys=keys) for v in value]
+            return [self._unmask_walk(v, restore, keys=keys) for v in value]
         if isinstance(value, tuple):
-            return tuple(self.unmask_value(v, keys=keys) for v in value)
+            return tuple(self._unmask_walk(v, restore, keys=keys) for v in value)
         return value
+
+    def _unmask_resent_text(self, text: str) -> str:
+        if "<" not in text:
+            return text
+        mapping = self._placeholder_map
+        tokens = [
+            match for match in _PLACEHOLDER_TOKEN_RE.finditer(text) if match.group(0) in mapping
+        ]
+        if not tokens:
+            return text
+        pieces: list[str] = []
+        spans: list[tuple[int, int]] = []
+        cursor = length = 0
+        for token in tokens:
+            original = mapping[token.group(0)]
+            length += token.start() - cursor
+            spans.append((length, length + len(original)))
+            pieces += (text[cursor : token.start()], original)
+            length += len(original)
+            cursor = token.end()
+        pieces.append(text[cursor:])
+        restored = "".join(pieces)
+        detections = find_identifiers(restored, self.policy, self._compiled_extras)
+        kept = _masked_again(restored, spans, detections, self._propagating)
+        if all(kept):
+            return restored
+        parts: list[str] = []
+        cursor = 0
+        for token, keep in zip(tokens, kept, strict=True):
+            parts += (
+                text[cursor : token.start()],
+                mapping[token.group(0)] if keep else token.group(0),
+            )
+            cursor = token.end()
+        parts.append(text[cursor:])
+        return "".join(parts)
 
     def unmask_tracked(self, value: Any) -> tuple[Any, frozenset[str]]:
         """``unmask_value`` that also returns the originals it restored."""
@@ -446,6 +498,33 @@ def _free_character(text: str) -> str | None:
 def _hide_literals(text: str, stand_in: str) -> str:
     """``text`` with each placeholder-shaped token's ``<`` written as ``stand_in``."""
     return _PLACEHOLDER_SHAPE_RE.sub(lambda match: stand_in + match.group(0)[1:], text)
+
+
+def _masked_again(
+    text: str,
+    spans: Sequence[tuple[int, int]],
+    detections: Sequence[DetectedIdentifier],
+    propagating: set[str],
+) -> list[bool]:
+    """Whether masking ``text`` replaces each span, by a detection or by propagation.
+
+    ``spans`` and ``detections`` are in start order; a span a detection only partly
+    covers is not replaced whole.
+    """
+    replaced: list[bool] = []
+    index = 0
+    for start, end in spans:
+        while index < len(detections) and detections[index].end <= start:
+            index += 1
+        if index < len(detections) and detections[index].start < end:
+            match = detections[index]
+            replaced.append(match.start <= start and end <= match.end)
+            continue
+        alone = not (start and _TOKEN_CHAR_RE.match(text, start - 1)) and not (
+            _TOKEN_CHAR_RE.match(text, end)
+        )
+        replaced.append(alone and text[start:end] in propagating)
+    return replaced
 
 
 def _distinct_shape(value: str) -> bool:

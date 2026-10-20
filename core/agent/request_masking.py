@@ -118,11 +118,16 @@ class RunMasking:
         self._own[id(message)] = message
 
     def restore_result(self, result: ToolExecutionResult) -> ToolExecutionResult:
-        """A tool result with this turn's placeholders restored."""
+        """A tool result with each placeholder restored where later requests mask it again.
+
+        A model-only result is kept as produced: later requests do not mask it again.
+        """
+        if result.model_only:
+            return result
         return replace(
             result,
-            content=self._rules.unmask_value(result.content),
-            details=self._rules.unmask_value(result.details),
+            content=self._rules.unmask_resent(result.content),
+            details=self._rules.unmask_resent(result.details),
         )
 
     def _plan(self, message: RuntimeMessage, slots: _Slots) -> _Build[RuntimeMessage]:
