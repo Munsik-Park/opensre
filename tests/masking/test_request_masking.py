@@ -11,8 +11,11 @@ from typing import Any
 
 import pytest
 
+from config.constants.tool_discovery import MODEL_ONLY_PRESENTATION_KEY
 from core.agent import Agent
 from core.llm.types import AgentLLMResponse, ToolCall
+from core.messages import ToolResultRuntimeMessage
+from core.tool import ToolExecutionResult
 from core.tool.contracts import AgentTool, AgentToolContext
 
 POD = "privacy-test-7b5b4cbd55-abcde"
@@ -174,6 +177,80 @@ def test_invalid_setting_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
         _run(llm, _lookup_tool([], "ok"))
 
     assert llm.requests == []
+
+
+def _call_lookup_without_identifiers(_messages: list[dict[str, Any]]) -> AgentLLMResponse:
+    return AgentLLMResponse(
+        content="", tool_calls=[ToolCall(id="call_1", name="lookup", input={"query": "status"})]
+    )
+
+
+def _tool_results(result: Any) -> list[Any]:
+    return [
+        item
+        for message in result.messages
+        if isinstance(message, ToolResultRuntimeMessage)
+        for item in message.results
+    ]
+
+
+@pytest.mark.usefixtures("masking_on")
+@pytest.mark.parametrize(
+    ("prompt", "original", "returned"),
+    [
+        (PROMPT, "privacy-test", "deploy <NAMESPACE_0>-canary failed"),
+        ("Investigate namespace payments now.", "payments", "deploy <NAMESPACE_0> failed"),
+    ],
+    ids=["beside-a-token-character", "plain-name-without-its-label"],
+)
+def test_a_placeholder_a_tool_returns_does_not_reach_the_provider_as_its_original(
+    prompt: str, original: str, returned: str
+) -> None:
+    llm = _ScriptedLLM([_call_lookup_without_identifiers, _final("ok")])
+
+    _run(llm, _lookup_tool([], returned), prompt=prompt)
+
+    assert "<NAMESPACE_0>" in json.dumps(llm.requests[0]["messages"]), llm.requests[0]
+    sent = json.dumps(llm.requests[1])
+    assert "failed" in sent, "the tool result must reach the next request"
+    assert original not in sent, f"{original!r} reached the provider: {sent}"
+
+
+@pytest.mark.usefixtures("masking_on")
+def test_a_turn_placeholder_in_a_tool_result_is_restored_and_masked_again() -> None:
+    llm = _ScriptedLLM([_call_lookup_without_identifiers, _final("ok")])
+
+    result = _run(llm, _lookup_tool([], "<NAMESPACE_0> rolled out"))
+
+    assert "privacy-test rolled out" in _tool_results(result)
+    sent = json.dumps(llm.requests[1])
+    assert "<NAMESPACE_0> rolled out" in sent and "privacy-test" not in sent, sent
+
+
+def _model_only_tool() -> AgentTool:
+    def _execute(_args: dict[str, Any], _context: AgentToolContext) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            content="Example: kubectl logs <POD_0>",
+            metadata={MODEL_ONLY_PRESENTATION_KEY: True},
+        )
+
+    return AgentTool(
+        name="lookup",
+        description="Load a skill.",
+        input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        execute=_execute,
+    )
+
+
+@pytest.mark.usefixtures("masking_on")
+def test_a_model_only_result_reaches_the_provider_as_produced() -> None:
+    llm = _ScriptedLLM([_call_lookup_without_identifiers, _final("ok")])
+
+    _run(llm, _model_only_tool())
+
+    assert "<POD_0>" in json.dumps(llm.requests[0]["messages"]), llm.requests[0]
+    sent = json.dumps(llm.requests[1])
+    assert "Example: kubectl logs <POD_0>" in sent and POD not in sent, sent
 
 
 @pytest.mark.usefixtures("masking_on")

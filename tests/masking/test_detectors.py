@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from config.constants.tool_output import TOOL_OUTPUT_CAPTURE_MAX_BYTES
 from infrastructure.safety.masking.detectors import (
     DetectedIdentifier,
     _resolve_overlaps,
@@ -157,21 +158,44 @@ def test_hostname_regex_handles_adversarial_input_quickly() -> None:
     assert elapsed < 1.0, f"hostname regex took {elapsed:.2f}s on adversarial input"
 
 
-@pytest.mark.parametrize("unit", ["a-", "a.", "a+", "x.kind-a."])
-def test_detection_stays_linear_on_long_runs(unit: str) -> None:
-    """A long hyphen, dot or plus run is detected in linear time.
+#: Repeated units whose runs make a detector's alternatives or skips rescan the run.
+_ADVERSARIAL_RUNS = {
+    "pod-hyphen-run": "a-",
+    "pod-hex-segments": "a-abcde-",
+    "hostname-dot-chain-without-tld": "a.",
+    "hostname-kind-names-in-a-chain": "x.kind-a.",
+    "hostname-ec2-names-in-a-hyphen-chain": "x-ip-1-1-1-1-",
+    "hostname-ec2-names-in-a-dot-chain": "x.ip-1-1-1-1-",
+    "hostname-ec2-labels-over-a-chain": "ip-1-1-1-1.",
+    "hostname-dns-names-in-a-chain": "a.b.com.",
+    "hostname-ec2-digits-past-a-chain": "ip-1-1-1-\u0661-x.",
+    "email-local-parts-without-at": "a+",
+    "email-domain-without-dot": "x@a-",
+    "email-local-parts-and-domains": "a.a@",
+    "labelled-namespace-cluster-service": "ns cluster=app:",
+    "quoted-keys": '"ns":"',
+    "ip-address-octets": "1.",
+    "account-digits": "123456789012-",
+}
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("unit", list(_ADVERSARIAL_RUNS.values()), ids=list(_ADVERSARIAL_RUNS))
+def test_detection_stays_linear_at_the_capture_size(unit: str) -> None:
+    """Every built-in detector scans a run as long as the shell's capture in linear time.
 
     A masked cut detects over a whole over-budget tool result, so a detector that
-    rescans a run from every word start inside it (quadratic in the run's length)
-    took seconds on this input and held the GIL while it ran.
+    rescans a run from each word start inside it is quadratic in the run's length
+    and holds the GIL for minutes at this size.
     """
     import time
 
-    text = (unit * (65_536 // len(unit) + 1))[:65_536]
+    size = TOOL_OUTPUT_CAPTURE_MAX_BYTES
+    text = (unit * (size // len(unit) + 1))[:size]
     start = time.perf_counter()
     find_identifiers(text, _policy())
     elapsed = time.perf_counter() - start
-    assert elapsed < 1.0, f"detection took {elapsed:.2f}s on a {len(text)}-character {unit!r} run"
+    assert elapsed < 3.0, f"detection took {elapsed:.2f}s on a {size}-character {unit!r} run"
 
 
 def test_extra_regex_pattern_is_applied() -> None:
