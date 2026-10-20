@@ -271,6 +271,21 @@ class MaskingRules:
         pattern = _token_pattern(known)
         return pattern.sub(lambda match: self._reverse_map[match.group(0)], text)
 
+    def cut_masked(self, text: str, cut: Callable[[str], str]) -> str:
+        """``cut`` made on ``text`` masked, with the kept text restored.
+
+        ``text`` comes back whole when ``cut`` keeps it or its masked form whole,
+        so a cut can split a placeholder but never an identifier. ``cut(text)``
+        when disabled.
+        """
+        if not self.policy.enabled:
+            return cut(text)
+        if cut(text) == text:
+            return text
+        (masked,) = self.mask_batch([text])
+        kept = cut(masked)
+        return text if kept == masked else self.unmask(kept)
+
     def mask_batch(
         self,
         values: Sequence[Any],

@@ -24,7 +24,7 @@ from config.constants.tooling import ToolBlockedBy, ToolSkippedBy
 from core.domain.types.tools import ToolRole
 from core.llm.types import ToolCall
 from core.tool.contracts import AgentTool, AgentToolContext, RuntimeTool
-from core.tool.output import tool_output_content
+from core.tool.output import tool_output_content, truncate_output_text
 from infrastructure.observability.errors.boundary import report_exception
 from infrastructure.observability.errors.service import is_service_unreachable
 from infrastructure.observability.trace.observations import (
@@ -131,15 +131,22 @@ class ToolExecutionResult:
     #: An owning tool applied the body budget and retained its status outside it.
     provider_output_bounded: bool = False
 
-    def provider_content(self) -> str | list[dict[str, Any]]:
-        """Return the content that should be sent back to the LLM provider."""
+    def provider_content(
+        self, cut: Callable[[str, int], str] = truncate_output_text
+    ) -> str | list[dict[str, Any]]:
+        """Return the content that should be sent back to the LLM provider.
+
+        ``cut`` bounds text the tool did not bound itself (see ``tool_output_content``).
+        """
         if (
             self.is_error
             and isinstance(self.details, dict)
             and self.details.get(TOOL_FAILURE_STATE_KEY) in TOOL_FAILURE_STATES
         ):
-            return tool_output_content(json.dumps(self.details, default=str))
-        return self.content if self.provider_output_bounded else tool_output_content(self.content)
+            return tool_output_content(json.dumps(self.details, default=str), cut)
+        if self.provider_output_bounded:
+            return self.content
+        return tool_output_content(self.content, cut)
 
     @property
     def model_only(self) -> bool:

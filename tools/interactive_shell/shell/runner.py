@@ -6,7 +6,7 @@ import threading
 from typing import Any
 
 from config.constants.tool_output import TOOL_OUTPUT_BYTES_PER_TOKEN
-from core.tool import tool_output_byte_budget
+from core.tool import tool_output_byte_budget, truncate_output_text_masked
 from infrastructure.terminal.theme import DIM, ERROR, GLYPH_ERROR
 from tools.interactive_shell.shell import execution as shell_execution
 from tools.interactive_shell.shell.display import (
@@ -100,6 +100,7 @@ def run_shell_command(
             timeout_seconds=SHELL_COMMAND_TIMEOUT_SECONDS,
             max_output_bytes=output_budget,
             cancel_event=cancel_event,
+            cut=truncate_output_text_masked,
         )
     except Exception as exc:
         presenter.report_exception(exc, context="surfaces.interactive_shell.shell_command.start")

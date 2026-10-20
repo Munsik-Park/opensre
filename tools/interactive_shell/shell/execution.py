@@ -8,7 +8,7 @@ import io
 import os
 import subprocess
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import IO, TypedDict
 
@@ -40,8 +40,10 @@ class ShellExecutionResult:
     combined_output: str = ""
 
 
-def _truncate_output(text: str, *, max_bytes: int) -> tuple[str, bool]:
-    preview = truncate_output_text(text, max_bytes)
+def _truncate_output(
+    text: str, *, max_bytes: int, cut: Callable[[str, int], str]
+) -> tuple[str, bool]:
+    preview = cut(text, max_bytes)
     return preview, preview != text
 
 
@@ -130,12 +132,14 @@ def execute_shell_command(
     timeout_seconds: int,
     max_output_bytes: int,
     cancel_event: threading.Event | None = None,
+    cut: Callable[[str, int], str] = truncate_output_text,
 ) -> ShellExecutionResult:
     """Execute a command and return a structured result object.
 
     Polls ``cancel_event`` while the child runs so ESC can stop ``shell_run``
     (and reap ``start_new_session`` descendants such as ``uv run opensre``)
-    instead of blocking on ``subprocess.run`` until timeout.
+    instead of blocking on ``subprocess.run`` until timeout. ``cut(text,
+    max_bytes)`` bounds stdout and stderr.
     """
     if cancel_event is not None and cancel_event.is_set():
         return _cancelled_result(command=command)
@@ -146,6 +150,7 @@ def execute_shell_command(
         timeout_seconds=timeout_seconds,
         max_output_bytes=max_output_bytes,
         cancel_event=cancel_event,
+        cut=cut,
     )
 
 
@@ -178,6 +183,7 @@ def _execute_command(
     max_output_bytes: int,
     cancel_event: threading.Event | None,
     environment: Mapping[str, str] | None = None,
+    cut: Callable[[str, int], str] = truncate_output_text,
 ) -> ShellExecutionResult:
     watch_cancel = cancel_event if cancel_event is not None else threading.Event()
     if watch_cancel.is_set():
@@ -220,6 +226,7 @@ def _execute_command(
             max_output_bytes=max_output_bytes,
             owned_tree=owned_tree,
             executed_with_shell=executed_with_shell,
+            cut=cut,
         )
 
 
@@ -232,6 +239,7 @@ def _collect_shell_result(
     max_output_bytes: int,
     owned_tree: OwnedProcessTree | None,
     executed_with_shell: bool = True,
+    cut: Callable[[str, int], str] = truncate_output_text,
 ) -> ShellExecutionResult:
     capture = ShellOutputCapture()
     readers = (
@@ -256,10 +264,12 @@ def _collect_shell_result(
     stdout, truncated_stdout = _truncate_output(
         captured_stdout,
         max_bytes=max_output_bytes,
+        cut=cut,
     )
     stderr, truncated_stderr = _truncate_output(
         captured_stderr,
         max_bytes=max_output_bytes,
+        cut=cut,
     )
     return ShellExecutionResult(
         command=command,

@@ -152,18 +152,17 @@ def _bounded_result(content: Any) -> str:
     The cut is made on the text masked under the turn's mapping, and the kept
     text is restored: a cut can split a placeholder, never an identifier.
     """
-    text = str(content)
+    return turn_masking_rules().cut_masked(str(content), _head_and_tail)
+
+
+def _head_and_tail(text: str) -> str:
     if len(text) <= _MAX_RESULT_CHARS:
         return text
-    rules = turn_masking_rules()
-    (masked,) = rules.mask_batch([text])
-    if len(masked) <= _MAX_RESULT_CHARS:
-        return text
-    dropped = len(masked) - _RESULT_HEAD_CHARS - _RESULT_TAIL_CHARS
-    return rules.unmask(
-        f"{masked[:_RESULT_HEAD_CHARS]}\n"
+    dropped = len(text) - _RESULT_HEAD_CHARS - _RESULT_TAIL_CHARS
+    return (
+        f"{text[:_RESULT_HEAD_CHARS]}\n"
         f"{_RESULT_INCOMPLETE_MARK.format(dropped=dropped)}\n"
-        f"{masked[-_RESULT_TAIL_CHARS:]}"
+        f"{text[-_RESULT_TAIL_CHARS:]}"
     )
 
 

@@ -61,6 +61,7 @@ from core.tool.execution import (
     public_tool_input,
 )
 from core.tool.live_catalog import LiveToolCatalog
+from core.tool.output import truncate_output_text, truncate_output_text_masked
 from infrastructure.observability.operations_log import record_operation
 from infrastructure.observability.trace.decisions import record_decision
 from infrastructure.observability.trace.llm_payloads import (
@@ -762,7 +763,8 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
             iteration=iteration,
             restore_result=masking.restore_result if masking is not None else None,
         )
-        provider_results = [result.provider_content() for result in results]
+        cut = truncate_output_text_masked if masking is not None else truncate_output_text
+        provider_results = [result.provider_content(cut) for result in results]
         tool_result_message = self._msg_formatter.to_tool_result_runtime_message(
             response.tool_calls, provider_results
         )

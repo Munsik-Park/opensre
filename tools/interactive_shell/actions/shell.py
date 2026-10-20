@@ -18,7 +18,7 @@ from core.tool import (
     SideEffectLevel,
     ToolExecutionResult,
     tool_output_byte_budget,
-    truncate_output_text,
+    truncate_output_text_masked,
 )
 from core.tool_framework.utils import object_schema, string_property
 from tools.interactive_shell.shell.effects import shell_command_only_reads
@@ -86,7 +86,7 @@ def run_shell(
         f"Timed out: {bool(payload.get('timed_out'))}",
         f"Cancelled: {bool(payload.get('cancelled'))}",
         "Output:",
-        truncate_output_text(str(output), output_budget),
+        truncate_output_text_masked(str(output), output_budget),
     ]
     return ToolExecutionResult(
         content="\n".join(sections), details=payload, provider_output_bounded=True

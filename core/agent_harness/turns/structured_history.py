@@ -34,7 +34,7 @@ from core.state import TurnEvidence, match_turn_evidence
 from core.state.history_settings import history_tool_result_chars
 from core.state.transcript_window import is_summary_message, summary_text
 from core.state.turn_evidence import ITEM_ASSISTANT, ITEM_TOOL_RESULTS, ITEM_USER, cap_text
-from core.tool import history_replay_byte_budget, truncate_output_text
+from core.tool import history_replay_byte_budget, truncate_output_text_masked
 from core.tool.execution import public_tool_input
 
 #: Header of the compacted-history message that opens a long conversation.
@@ -148,7 +148,7 @@ def tool_items_from_run(
                     continue
                 call, content = pairs[original_index]
                 call_id = pending_ids[result_index]
-                text = truncate_output_text(_content_text(content), result_byte_budget)
+                text = truncate_output_text_masked(_content_text(content), result_byte_budget)
                 if result_limit is not None:
                     text = cap_text(text, result_limit)
                 results.append(
