@@ -157,6 +157,23 @@ def test_hostname_regex_handles_adversarial_input_quickly() -> None:
     assert elapsed < 1.0, f"hostname regex took {elapsed:.2f}s on adversarial input"
 
 
+@pytest.mark.parametrize("unit", ["a-", "a.", "a+", "x.kind-a."])
+def test_detection_stays_linear_on_long_runs(unit: str) -> None:
+    """A long hyphen, dot or plus run is detected in linear time.
+
+    A masked cut detects over a whole over-budget tool result, so a detector that
+    rescans a run from every word start inside it (quadratic in the run's length)
+    took seconds on this input and held the GIL while it ran.
+    """
+    import time
+
+    text = (unit * (65_536 // len(unit) + 1))[:65_536]
+    start = time.perf_counter()
+    find_identifiers(text, _policy())
+    elapsed = time.perf_counter() - start
+    assert elapsed < 1.0, f"detection took {elapsed:.2f}s on a {len(text)}-character {unit!r} run"
+
+
 def test_extra_regex_pattern_is_applied() -> None:
     policy = MaskingPolicy.model_validate(
         {
