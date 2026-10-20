@@ -13,10 +13,10 @@ from core.domain.alerts import inbox as _alert_inbox
 from infrastructure.scheduling.scheduler.background_service import (
     restart_stale_background_service,
 )
+from surfaces.interactive_shell.runtime.background.alert_drain import drain_and_render_incoming
 from surfaces.interactive_shell.runtime.core.state import ReplState, SpinnerState
 from surfaces.interactive_shell.runtime.startup.deferred_work import DeferredJob
 from surfaces.interactive_shell.session import Session
-from surfaces.interactive_shell.ui.alerts import drain_and_render_incoming
 from surfaces.shared.integration_telemetry import capture_github_connection_snapshot
 
 log = logging.getLogger(__name__)
@@ -85,16 +85,19 @@ class BackgroundTaskPool:
             color_system="truecolor",
             legacy_windows=False,
         )
-        drain_and_render_incoming(self.session, alert_console, self.inbox)
+        self._drain_watched_alerts(alert_console, self.inbox)
         while not self.state.exit_requested:
             try:
                 await asyncio.to_thread(self.inbox.pending_event.wait, timeout=1)
             except asyncio.CancelledError:
                 return
-            try:
-                drain_and_render_incoming(self.session, alert_console, self.inbox)
-            except Exception as exc:
-                log.warning("Error draining incoming alerts: %s", exc)
+            self._drain_watched_alerts(alert_console, self.inbox)
+
+    def _drain_watched_alerts(self, console: Console, inbox: _alert_inbox.AlertInbox) -> None:
+        try:
+            drain_and_render_incoming(self.session, console, inbox)
+        except Exception as exc:
+            log.warning("Error draining incoming alerts: %s", exc)
 
     async def _spinner_ticker(self) -> None:
         # prompt_async's refresh_interval alone is not guaranteed to drive

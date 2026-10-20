@@ -44,12 +44,15 @@ class TestAlertInbox:
         assert inbox.pop_nowait() is not None
         assert inbox.qsize == 1
 
-    def test_iter_pending_drains(self) -> None:
+    def test_due_alerts_stay_queued_until_acknowledged(self) -> None:
         inbox = AlertInbox(maxsize=5)
         for i in range(3):
             inbox.put(IncomingAlert(text=f"alert {i}"))
-        items = inbox.iter_pending()
+        items = inbox.due()
         assert len(items) == 3
+        assert inbox.qsize == 3
+        for item in items:
+            inbox.acknowledge(item.handle)
         assert inbox.qsize == 0
 
     def test_pop_nowait_returns_none_when_empty(self) -> None:
@@ -62,4 +65,4 @@ class TestAlertInbox:
         inbox.put(IncomingAlert(text="c"))
         assert inbox.qsize == 2
         assert inbox.dropped == 1
-        assert [a.text for a in inbox.iter_pending()] == ["b", "c"]
+        assert [item.alert.text for item in inbox.due()] == ["b", "c"]

@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 
@@ -22,9 +21,6 @@ from infrastructure.terminal.theme import (
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
-
-    from core.domain.alerts.inbox import AlertInbox
-    from surfaces.interactive_shell.runtime import Session
 
 
 def time_ago(then: datetime | None) -> str:
@@ -92,24 +88,4 @@ def format_incoming_alert(alert: IncomingAlert) -> RenderableType:
     return panel
 
 
-def drain_and_render_incoming(
-    session: Session,
-    console: Console,
-    inbox: AlertInbox,
-) -> int:
-    """Pop all queued alerts, render each one, and record them in session.
-
-    Returns the number of alerts rendered.
-    """
-    alerts = inbox.iter_pending()
-    count = 0
-
-    for alert in alerts:
-        console.print(format_incoming_alert(alert), end="\n")
-        session.record_incoming_alert(alert)
-        count += 1
-
-    return count
-
-
-__all__ = ["format_incoming_alert", "drain_and_render_incoming", "time_ago"]
+__all__ = ["format_incoming_alert", "time_ago"]

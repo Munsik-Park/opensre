@@ -41,10 +41,11 @@ class Session(SessionCore):
 
         Also stores the alert in the ``alerts`` inbox facet (bounded FIFO), preserving
         received_at, severity, source, and alert_name so /status displays accurate
-        timestamps and future uses have complete data.
+        timestamps and future uses have complete data. The store write comes first, so
+        a raising store leaves the session unchanged and the call is safe to retry.
         """
-        self.history.append({"type": "incoming_alert", "text": alert.text, "ok": True})
         self.store.append_turn(self, "incoming_alert", alert.text)
+        self.history.append({"type": "incoming_alert", "text": alert.text, "ok": True})
         self.alerts.add(alert)
 
     def clear(self, *, rotate_identity: bool = True) -> None:
