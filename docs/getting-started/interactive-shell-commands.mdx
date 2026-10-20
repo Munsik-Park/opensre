@@ -926,7 +926,7 @@ When the alert listener is active:
 | Field | Meaning |
 | --- | --- |
 | `status` | `listening` |
-| `queue depth` | Alerts waiting for REPL consumption |
+| `queue depth` | Alerts waiting for REPL consumption, including alerts that failed to record and are waiting to retry |
 | `dropped` | Alerts dropped when queue was full |
 | `recent` | Up to 5 latest alert names/snippets |
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from rich.console import Console
 
 from core.domain.alerts.inbox import AlertInbox
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.alerts import format_incoming_alert
+
+log = logging.getLogger(__name__)
 
 
 def drain_and_render_incoming(
@@ -14,19 +18,26 @@ def drain_and_render_incoming(
     console: Console,
     inbox: AlertInbox,
 ) -> int:
-    """Pop all queued alerts, render each one, and record them in session.
+    """Record, acknowledge, then render each due alert; return how many were recorded.
 
-    Returns the number of alerts rendered.
+    An alert whose recording raises stays in the inbox for a later retry; one whose
+    rendering raises stays recorded. Neither failure stops the remaining alerts.
     """
-    alerts = inbox.iter_pending()
-    count = 0
-
-    for alert in alerts:
-        console.print(format_incoming_alert(alert), end="\n")
-        session.record_incoming_alert(alert)
-        count += 1
-
-    return count
+    recorded = 0
+    for due in inbox.due():
+        try:
+            session.record_incoming_alert(due.alert)
+        except Exception as exc:
+            inbox.defer(due.handle)
+            log.warning("Error recording incoming alert; will retry: %s", exc)
+            continue
+        inbox.acknowledge(due.handle)
+        recorded += 1
+        try:
+            console.print(format_incoming_alert(due.alert), end="\n")
+        except Exception as exc:
+            log.warning("Error rendering incoming alert: %s", exc)
+    return recorded
 
 
 __all__ = ["drain_and_render_incoming"]

@@ -288,33 +288,26 @@ class TestAlertInboxEventClearing:
         # Event should be set after put
         assert inbox.pending_event.is_set()
 
-    def test_event_cleared_on_iter_pending(self) -> None:
+    def test_event_cleared_when_due_alerts_are_taken(self) -> None:
         inbox = AlertInbox()
         alert = IncomingAlert(text="test")
 
         inbox.put(alert)
         assert inbox.pending_event.is_set()
 
-        inbox.iter_pending()
+        inbox.due()
 
         # Event should be cleared after draining
         assert not inbox.pending_event.is_set()
 
-    def test_event_not_cleared_if_queue_not_empty(self) -> None:
+    def test_deferred_alert_does_not_set_event(self) -> None:
         inbox = AlertInbox()
-
         inbox.put(IncomingAlert(text="first"))
+
+        (due,) = inbox.due()
+        inbox.defer(due.handle)
+
+        assert inbox.qsize == 1
+        assert not inbox.pending_event.is_set()
         inbox.put(IncomingAlert(text="second"))
-
-        # Pop only one
-        inbox.pop_nowait()
-
-        # Drain but queue still has one item
-        # (this is artificial; normally iter_pending drains all)
-        # Let's test with iter_pending which should drain all
-        inbox2 = AlertInbox()
-        inbox2.put(IncomingAlert(text="alert"))
-        inbox2.iter_pending()
-
-        # After draining all, event should be cleared
-        assert not inbox2.pending_event.is_set()
+        assert inbox.pending_event.is_set()

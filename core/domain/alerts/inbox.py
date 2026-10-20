@@ -6,13 +6,17 @@ Owns the queue and the process-wide current-inbox handle. HTTP intake is
 
 from __future__ import annotations
 
+import itertools
 import threading
-from collections import deque
+from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import datetime
+from time import monotonic
 
 from config.strict_config import StrictConfigModel
 
 _DEFAULT_MAX_INBOX = 256
+_RETRY_DELAY_SECONDS = 5.0
 
 
 class IncomingAlert(StrictConfigModel):
@@ -23,54 +27,83 @@ class IncomingAlert(StrictConfigModel):
     received_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class DueAlert:
+    """A queued alert handed to a drain, with the handle naming its inbox entry."""
+
+    handle: int
+    alert: IncomingAlert
+
+
+@dataclass
+class _Entry:
+    alert: IncomingAlert
+    retry_at: float | None = None
+
+
 class AlertInbox:
+    """Bounded queue of received alerts; an alert stays queued until a drain acknowledges it.
+
+    Every queued alert, including one waiting to retry, counts against ``maxsize``.
+    """
+
     def __init__(self, maxsize: int = _DEFAULT_MAX_INBOX) -> None:
-        self._queue: deque[IncomingAlert] = deque()
+        self._entries: OrderedDict[int, _Entry] = OrderedDict()
+        self._handles = itertools.count()
         self._maxsize = maxsize
         self._dropped: int = 0
         self._lock = threading.Lock()
-        self._pending_event = threading.Event()  # Set when alerts are available
+        self._pending_event = threading.Event()
 
     def put(self, alert: IncomingAlert) -> bool:
         """Return True if queued without eviction, False if an old alert was dropped."""
         with self._lock:
-            if len(self._queue) >= self._maxsize:
-                self._queue.popleft()
+            evicted = len(self._entries) >= self._maxsize
+            if evicted:
+                self._entries.popitem(last=False)
                 self._dropped += 1
-                self._queue.append(alert)
-                self._pending_event.set()
-                return False
-            self._queue.append(alert)
+            self._entries[next(self._handles)] = _Entry(alert)
             self._pending_event.set()
-        return True
+        return not evicted
 
     def pop_nowait(self) -> IncomingAlert | None:
         with self._lock:
-            try:
-                return self._queue.popleft()
-            except IndexError:
+            if not self._entries:
                 return None
+            return self._entries.popitem(last=False)[1].alert
 
-    def iter_pending(self) -> list[IncomingAlert]:
+    def due(self) -> list[DueAlert]:
+        """Return the alerts not waiting out a retry delay, oldest first; clears the wake event."""
+        now = monotonic()
         with self._lock:
-            items: list[IncomingAlert] = []
-            while True:
-                try:
-                    items.append(self._queue.popleft())
-                except IndexError:
-                    break
-            if not self._queue:
-                self._pending_event.clear()
-            return items
+            self._pending_event.clear()
+            return [
+                DueAlert(handle, entry.alert)
+                for handle, entry in self._entries.items()
+                if entry.retry_at is None or entry.retry_at <= now
+            ]
+
+    def acknowledge(self, handle: int) -> None:
+        """Remove a recorded alert; a no-op once ``put`` has evicted its entry."""
+        with self._lock:
+            self._entries.pop(handle, None)
+
+    def defer(self, handle: int) -> None:
+        """Leave a failed alert queued, not due again until the retry delay has passed."""
+        retry_at = monotonic() + _RETRY_DELAY_SECONDS
+        with self._lock:
+            entry = self._entries.get(handle)
+            if entry is not None:
+                entry.retry_at = retry_at
 
     def peek_last(self, n: int) -> list[IncomingAlert]:
         with self._lock:
-            items = list(self._queue)
+            items = [entry.alert for entry in self._entries.values()]
             return items[-n:]
 
     @property
     def qsize(self) -> int:
-        return len(self._queue)
+        return len(self._entries)
 
     @property
     def dropped(self) -> int:
@@ -78,7 +111,7 @@ class AlertInbox:
 
     @property
     def pending_event(self) -> threading.Event:
-        """Event set when alerts are available, for background wakers."""
+        """Event set by ``put`` and cleared by ``due``; deferring an alert never sets it."""
         return self._pending_event
 
 
@@ -96,6 +129,7 @@ def get_current_inbox() -> AlertInbox | None:
 
 __all__ = [
     "AlertInbox",
+    "DueAlert",
     "IncomingAlert",
     "get_current_inbox",
     "set_current_inbox",
