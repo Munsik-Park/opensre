@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from contextvars import ContextVar
 from functools import partial
 
 from config.constants.gateway import ATTACHMENT_MAX_FILE_CHARS
@@ -10,6 +12,9 @@ from infrastructure.safety.masking import turn_masking_rules
 
 _HEAD_CHARS = 26_000
 _TAIL_CHARS = 12_000
+
+#: The message whose attachments are being rendered.
+_MESSAGE: ContextVar[str] = ContextVar("gateway_attachment_message", default="")
 
 _TEXT_MIME_EXACT = frozenset(
     {
@@ -53,9 +58,30 @@ def is_text_mimetype(mimetype: str) -> bool:
     return mime.startswith("text/") or mime in _TEXT_MIME_EXACT
 
 
+def message_with_attachments(message: str, render: Callable[[], str]) -> str:
+    """``message`` followed by the attachments ``render`` composes, if any.
+
+    Each attachment cut masks its file together with ``message``, so a value the
+    message labels is masked where a file writes it bare, and no cut splits it.
+    """
+    token = _MESSAGE.set(message)
+    try:
+        attachments = render()
+    finally:
+        _MESSAGE.reset(token)
+    return f"{message}\n\n{attachments}" if attachments else message
+
+
+def _message_context() -> tuple[str, ...]:
+    message = _MESSAGE.get()
+    return (message,) if message else ()
+
+
 def truncate_attachment_text(text: str, *, max_chars: int = ATTACHMENT_MAX_FILE_CHARS) -> str:
     """Head and tail of ``text`` past ``max_chars``, cut on its masked form and restored."""
-    return turn_masking_rules().cut_masked(text, partial(_head_and_tail, max_chars=max_chars))
+    return turn_masking_rules().cut_masked(
+        text, partial(_head_and_tail, max_chars=max_chars), context=_message_context()
+    )
 
 
 def _head_and_tail(text: str, *, max_chars: int) -> str:
@@ -67,7 +93,9 @@ def _head_and_tail(text: str, *, max_chars: int) -> str:
 
 def budgeted_section(header: str, raw_text: str, remaining: int) -> tuple[str, int]:
     """Scrub and truncate ``raw_text`` to the remaining budget under ``header``."""
-    body = turn_masking_rules().cut_masked(scrub_secrets(raw_text), lambda text: text[:remaining])
+    body = turn_masking_rules().cut_masked(
+        scrub_secrets(raw_text), lambda text: text[:remaining], context=_message_context()
+    )
     return f"{header}\n{body}", len(body)
 
 
@@ -81,6 +109,7 @@ __all__ = [
     "budgeted_section",
     "is_text_mimetype",
     "join_attachment_sections",
+    "message_with_attachments",
     "scrub_secrets",
     "truncate_attachment_text",
 ]

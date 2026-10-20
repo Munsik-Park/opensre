@@ -276,13 +276,17 @@ class MaskingRules:
         pattern = _token_pattern(known)
         return pattern.sub(lambda match: self._reverse_map[match.group(0)], text)
 
-    def cut_masked(self, text: str, cut: Callable[[str], str]) -> str:
+    def cut_masked(
+        self, text: str, cut: Callable[[str], str], *, context: Sequence[str] = ()
+    ) -> str:
         """``cut`` made on ``text`` masked, with the kept text restored.
 
         ``text`` comes back whole when ``cut`` keeps it or its masked form whole,
-        so a cut can split a placeholder but never an identifier. Only placeholders
-        this masking wrote are restored: a placeholder-shaped token ``text``
-        already held comes back as written. ``cut(text)`` when disabled.
+        so a cut can split a placeholder but never an identifier. ``context`` holds
+        texts of the same request, masked together with ``text`` so a value they
+        label is masked in ``text`` too. Only placeholders this masking wrote are
+        restored: a placeholder-shaped token ``text`` already held comes back as
+        written. ``cut(text)`` when disabled.
         """
         if not self.policy.enabled:
             return cut(text)
@@ -291,7 +295,7 @@ class MaskingRules:
         literals = frozenset(_PLACEHOLDER_SHAPE_RE.findall(text))
         stand_in = _free_character(text) if literals else None
         source = text if stand_in is None else _hide_literals(text, stand_in)
-        (masked,) = self.mask_batch([source])
+        *_, masked = self.mask_batch([*context, source])
         kept = cut(masked)
         if kept == masked:
             return text

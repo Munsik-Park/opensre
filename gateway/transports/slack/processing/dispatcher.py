@@ -6,6 +6,7 @@ import contextlib
 import logging
 import threading
 import time
+from functools import partial
 
 from config.constants.gateway import (
     CREDITS_DENIED_MESSAGE,
@@ -17,6 +18,7 @@ from config.constants.gateway import (
 from config.principal import StorageScope
 from config.scope_context import bound_storage_scope
 from core.agent_harness import SessionCore
+from gateway.core.attachments.inline import message_with_attachments
 from gateway.core.billing.turn_metering import bound_turn_metering
 from gateway.core.middleware.active_turns import ActiveTurnRegistry, is_stop_command
 from gateway.core.middleware.approvals import ApprovalBroker
@@ -363,10 +365,10 @@ class SlackTurnDispatcher:
                                 seeded,
                             )
                     agent_text = _agent_text_with_slack_context(inbound)
-                    if inbound.files and (
-                        files_context := _slack_files_context(inbound.files, self._logger)
-                    ):
-                        agent_text = f"{agent_text}\n\n{files_context}"
+                    if inbound.files:
+                        agent_text = message_with_attachments(
+                            agent_text, partial(_slack_files_context, inbound.files, self._logger)
+                        )
                     with (
                         self._active_cancels.track(
                             inbound.conversation_key,
