@@ -79,6 +79,15 @@ an error naming the setting: an `OPENSRE_MASK_EXTRA_REGEX` that is not a JSON
 object of valid regexes, or an `OPENSRE_MASK_KINDS` entry that names no kind —
 whatever the other entries name. Fix the setting and send the message again.
 
+An `OPENSRE_MASK_EXTRA_REGEX` pattern runs over all the masked content of every
+request, tool output included (up to 1 MiB from one command), so a slow pattern
+slows every turn. A pattern that can start anywhere inside a long run of the
+characters it repeats is retried from each of those starts:
+`\b[a-z0-9-]+\.corp\.example\.com\b` takes seconds on 64 KB of `a-a-a-…` and
+minutes on 1 MiB. Let it start only where such a run starts —
+`(?<![a-z0-9-])[a-z0-9-]+\.corp\.example\.com\b` finds those names in
+milliseconds.
+
 <Note>
 An `OPENSRE_MASK_KINDS` list written in upper case (`POD,NAMESPACE`) used to
 mask every kind. It now masks only the kinds it names.
