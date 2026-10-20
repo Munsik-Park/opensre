@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from config.constants.work_items import WORK_ITEM_REMINDER_RUN_AT_PARAM
 from core.domain.work_items import (
@@ -16,6 +17,13 @@ from infrastructure.scheduling.scheduler.storage import add_task as add_schedule
 from infrastructure.scheduling.scheduler.storage import list_tasks, update_task
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from tools.system.work_items.validation import validate_provider
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledReminder:
+    """The reminder task a scheduling request resolved to, as stored after the call."""
+
+    task: ScheduledTask
 
 
 def disable_existing_item_reminders(item_id: str) -> int:
@@ -39,7 +47,7 @@ def schedule_item_reminder(
     *,
     targets: list[WorkItemChannelTarget],
     timezone: str,
-) -> ScheduledTask | None:
+) -> ScheduledReminder | None:
     """Schedule or replace a one-shot work item reminder task."""
     if not item.remind_at:
         return None
@@ -73,13 +81,14 @@ def schedule_item_reminder(
             ),
         },
     )
-    return add_scheduled_task(task)
+    return ScheduledReminder(add_scheduled_task(task))
 
 
 _disable_existing_item_reminders = disable_existing_item_reminders
 _schedule_item_reminder = schedule_item_reminder
 
 __all__ = [
+    "ScheduledReminder",
     "_disable_existing_item_reminders",
     "_schedule_item_reminder",
     "disable_existing_item_reminders",
