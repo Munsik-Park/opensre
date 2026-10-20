@@ -86,7 +86,7 @@ class _WatcherDrain:
 @pytest.fixture
 def inbox_clock(monkeypatch: pytest.MonkeyPatch) -> _InboxClock:
     clock = _InboxClock()
-    monkeypatch.setattr(alert_inbox, "monotonic", clock, raising=False)
+    monkeypatch.setattr(alert_inbox, "monotonic", clock)
     return clock
 
 
