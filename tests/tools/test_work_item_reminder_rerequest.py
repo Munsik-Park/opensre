@@ -347,7 +347,11 @@ def _early_partial_delivery_then_tick(
     assert run_task_now(task_id, _RUNNERS) is True
     channels.clear()
     if rerequest:
+        before = _rows(item_id)
         _rerequest(item_id)
+        assert _rows(item_id) == before, (
+            "the partially delivered reminder is left as it was and none is added"
+        )
     _tick(task_id)
     return task_id, channels.sent()
 
@@ -363,6 +367,7 @@ def test_an_early_partial_delivery_keeps_its_tick_and_retry_after_a_rerequest(
 
     control = _use_stores(tmp_path / "control", monkeypatch)
     _control_id, control_tick = _early_partial_delivery_then_tick(control, rerequest=False)
+    assert control_tick != _NOTHING_SENT, "without a re-request the tick at the reminder time sends"
     assert rerequested_tick == control_tick, (
         "the tick at the reminder time delivers as it would have without the re-request"
     )
