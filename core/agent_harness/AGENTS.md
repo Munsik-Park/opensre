@@ -551,7 +551,9 @@ which owns the actual think → call-tools → observe algorithm.
   outside the loop masks the content values it composes with
   `turn_masking_rules()` (the turn's own goal checks) or
   `request_masking_rules()` (compaction, memory, knowledge scans, daily
-  update) and restores the reply before using or storing it.
+  update) and restores the reply before using or storing it. It masks before
+  it cuts or reprs a value: a cut made first can leave part of an identifier
+  that no detector recognizes.
 - `core/agent/run_io.py` — `AgentRunInput` (resolved per-run inputs) and
   `AgentRunResult` (the loop's outcome). `core.agent` re-exports `AgentRunResult`
   for the `from core.agent import AgentRunResult` path.
