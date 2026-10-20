@@ -597,6 +597,17 @@ def get_runs(task_id: str, limit: int = 20, db_path: Path | None = None) -> list
         return [_row_to_task_run(row) for row in cursor.fetchall()]
 
 
+def get_all_runs(task_id: str, db_path: Path | None = None) -> list[TaskRun]:
+    """Return every recorded attempt of a task, newest first, with no row limit."""
+    with database.connection(db_path) as conn:
+        cursor = conn.execute(
+            f"SELECT {_RUN_COLUMNS} FROM task_runs WHERE task_id = ? "
+            "ORDER BY started_at DESC, id DESC",
+            (task_id,),
+        )
+        return [_row_to_task_run(row) for row in cursor.fetchall()]
+
+
 def get_latest_runs(task_ids: Collection[str], db_path: Path | None = None) -> dict[str, TaskRun]:
     """Read the latest attempt for each requested task in one snapshot."""
     if not task_ids:
@@ -753,6 +764,7 @@ __all__ = [
     "RecoverableRun",
     "ExecutionClaim",
     "get_recoverable_runs",
+    "get_all_runs",
     "get_latest_run_for_fire_time",
     "get_latest_finished_run",
     "get_latest_targeted_run",

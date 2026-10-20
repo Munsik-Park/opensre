@@ -212,7 +212,7 @@ def work_task_add(
         targets=targets,
         timezone=timezone or "UTC",
     )
-    return added_result(item, scheduled_task_id=scheduled.id if scheduled else "")
+    return added_result(item, scheduled_task_id=scheduled.task.id if scheduled else "")
 
 
 @tool(
@@ -462,7 +462,10 @@ def work_task_update(
         )
     result_payload = update_result(result.item)
     if scheduled is not None:
-        result_payload["scheduled_task_id"] = scheduled.id
+        if scheduled.pending:
+            result_payload["scheduled_task_id"] = scheduled.task.id
+        if scheduled.delivered:
+            result_payload["reminder_status"] = "already_delivered"
     return result_payload
 
 
