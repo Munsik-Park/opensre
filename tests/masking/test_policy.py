@@ -52,18 +52,17 @@ def test_from_env_kinds_subset() -> None:
     assert policy.kinds == ("pod", "namespace")
 
 
-def test_from_env_kinds_unknown_kind_is_ignored() -> None:
+def test_from_env_kind_names_match_without_regard_to_case() -> None:
     policy = MaskingPolicy.from_env(
-        {"OPENSRE_MASK_ENABLED": "true", "OPENSRE_MASK_KINDS": "pod,not_a_real_kind,email"}
+        {"OPENSRE_MASK_ENABLED": "true", "OPENSRE_MASK_KINDS": " POD, Namespace ,SERVICE_NAME"}
     )
-    assert policy.kinds == ("pod", "email")
+    assert policy.kinds == ("pod", "namespace", "service_name")
 
 
-def test_from_env_kinds_all_invalid_falls_back_to_defaults() -> None:
-    policy = MaskingPolicy.from_env(
-        {"OPENSRE_MASK_ENABLED": "true", "OPENSRE_MASK_KINDS": "nope,also_nope"}
-    )
-    assert policy.kinds == ALL_KINDS
+@pytest.mark.parametrize("kinds", ["pod,namspace", "nope,also_nope"])
+def test_from_env_kind_naming_no_kind_stops_while_enabled(kinds: str) -> None:
+    with pytest.raises(ValueError, match="OPENSRE_MASK_KINDS"):
+        MaskingPolicy.from_env({"OPENSRE_MASK_ENABLED": "true", "OPENSRE_MASK_KINDS": kinds})
 
 
 def test_from_env_extra_regex_parsed() -> None:
@@ -76,10 +75,26 @@ def test_from_env_extra_regex_parsed() -> None:
     assert "jira_key" in policy.extra_patterns
 
 
-def test_from_env_invalid_json_extra_regex_ignored() -> None:
+@pytest.mark.parametrize(
+    "raw",
+    ["not valid json", '["payments"]', '{"ns_name": "(payments-prod"}'],
+)
+def test_from_env_malformed_extra_regex_stops_while_enabled(raw: str) -> None:
+    with pytest.raises(ValueError, match="OPENSRE_MASK_EXTRA_REGEX") as raised:
+        MaskingPolicy.from_env({"OPENSRE_MASK_ENABLED": "true", "OPENSRE_MASK_EXTRA_REGEX": raw})
+    assert "payments" not in str(raised.value), "the error must not quote the operator's pattern"
+
+
+def test_from_env_disabled_never_reads_the_other_settings() -> None:
     policy = MaskingPolicy.from_env(
-        {"OPENSRE_MASK_ENABLED": "true", "OPENSRE_MASK_EXTRA_REGEX": "not valid json"}
+        {
+            "OPENSRE_MASK_ENABLED": "false",
+            "OPENSRE_MASK_KINDS": "pod,namspace",
+            "OPENSRE_MASK_EXTRA_REGEX": "not valid json",
+        }
     )
+    assert policy.enabled is False
+    assert policy.kinds == ALL_KINDS
     assert policy.extra_patterns == {}
 
 
