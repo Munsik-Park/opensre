@@ -39,8 +39,7 @@ class DetectedIdentifier:
 # regexes. Contextual detectors capture the VALUE in the ``value`` group so we
 # only mask the identifier itself (not the preceding label like "kube_namespace:").
 
-# A masked cut runs every detector over a whole over-budget tool result, so each
-# detector must stay linear on any input. The pod and email patterns end in an
+# Each detector stays linear on any input. The pod and email patterns end in an
 # alternative that captures nothing and consumes the run of identifier characters
 # where the first alternative failed: no later start inside that run can match, so a
 # run is scanned a bounded number of times rather than once from every word start.

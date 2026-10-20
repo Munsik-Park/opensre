@@ -118,7 +118,7 @@ class RunMasking:
         self._own[id(message)] = message
 
     def restore_result(self, result: ToolExecutionResult) -> ToolExecutionResult:
-        """A tool result with each placeholder restored where later requests mask it again.
+        """A tool result with each placeholder restored where its string alone is masked again.
 
         A model-only result is kept as produced: later requests do not mask it again.
         """
@@ -195,7 +195,7 @@ class RunMasking:
                 else plan(masked)
                 for index, (result, plan) in enumerate(zip(message.results, plans, strict=True))
             )
-            # The stored payloads hold originals; without them the mapper renders the masked results.
+            # Drop the stored payloads: they hold originals.
             return replace(message, tool_calls=calls, results=results, provider_payloads=())
 
         return _build

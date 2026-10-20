@@ -12,8 +12,9 @@ stored. Teams can use external models while keeping raw identifiers inside the
 agent runtime.
 
 Masking is **off by default**. Turn it on with environment variables — no code
-changes required. Settings are read once per turn, so a change applies on the
-next turn without a restart.
+changes required. Settings are read when a turn first masks a request, so a
+change applies on the next turn without a restart. A `/goal` run reads them
+once for all its turns: a change applies on the next run.
 
 ## What is masked
 
