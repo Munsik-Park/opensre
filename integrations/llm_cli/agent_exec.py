@@ -326,12 +326,13 @@ def classify_agent_outcome(
     timeout_sec: float,
 ) -> AgentOutcome:
     """Classify a run into success / error from output, exit code, and changes."""
-    # Mask free-text fields (the agent may echo env/secrets); the diff is handled by
-    # the caller verbatim since masking would corrupt code that must be reviewed.
+    # Mask free-text fields (the agent may echo env/secrets) before cutting them, so a
+    # cut never splits an identifier; the diff is handled by the caller verbatim since
+    # masking would corrupt code that must be reviewed.
     masker = turn_masking_rules()
     out_text = outcome.stdout.strip()
     err_text = outcome.stderr.strip()
-    summary = masker.mask(out_text[:_MAX_OUTPUT_CHARS])
+    summary: str = masker.mask_batch([out_text])[0][:_MAX_OUTPUT_CHARS]
 
     made_changes = bool(changed_files)
     # Agent CLIs print provider errors (e.g. a 429 quota/rate-limit) to *stdout* and
@@ -358,7 +359,7 @@ def classify_agent_outcome(
         error = _PROVIDER_CREDIT_ERROR.format(agent=agent_name)
     elif outcome.returncode != 0 or hit_limit:
         detail = err_text or out_text or f"{agent_name} exited with code {outcome.returncode}"
-        error = masker.mask(detail[:_MAX_OUTPUT_CHARS])
+        error = masker.mask_batch([detail])[0][:_MAX_OUTPUT_CHARS]
     elif not made_changes and not summary:
         error = (
             f"{agent_name} exited cleanly but made no changes and produced no output "

@@ -49,10 +49,11 @@ def _build_task(issue: dict) -> str:
     masker = turn_masking_rules()
 
     def field(value: object, *, limit: int | None = None) -> str:
-        text = str(value or "").strip()
+        # Masked before the cut, so the cut never splits an identifier.
+        text = masker.mask(str(value or "").strip())
         if limit:
             text = text[:limit]
-        return masker.mask(text)
+        return text
 
     raw_meta = issue.get("metadata")
     meta = raw_meta if isinstance(raw_meta, dict) else {}
