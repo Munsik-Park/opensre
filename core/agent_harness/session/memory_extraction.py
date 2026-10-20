@@ -71,6 +71,7 @@ from core.domain.memory import (
     slugify,
 )
 from infrastructure.analytics.repl_context import get_prompt_turn_id
+from infrastructure.safety.masking import MaskingRules, request_masking_rules
 
 logger = logging.getLogger(__name__)
 
@@ -350,10 +351,11 @@ def _run_extraction(job: ExtractionJob) -> None:
     if digest.empty:
         return
     ensure_memory_store()
-    response = _invoke_extraction_llm(_build_prompt(digest.text))
+    rules = request_masking_rules()
+    response = _invoke_extraction_llm(_build_prompt(digest.text, rules))
     if not response:
         return
-    result = parse_extraction(response)
+    result = parse_extraction(rules.unmask(response))
     saved = _save_extracted(result.items, digest.read)
     if job.session_id and result.session_summary:
         append_session_summary(
@@ -379,12 +381,13 @@ def _stored_memory_index() -> str:
     return "\n".join(lines) or "(no memories stored yet)"
 
 
-def _build_prompt(digest: str) -> str:
+def _build_prompt(digest: str, rules: MaskingRules) -> str:
+    memory_index, masked_digest = rules.mask_batch([_stored_memory_index(), digest])
     return _EXTRACTION_PROMPT.format(
         policy=MEMORY_WRITE_POLICY,
         max_memories=MAX_MEMORIES_PER_SESSION,
-        memory_index=_stored_memory_index(),
-        digest=digest,
+        memory_index=memory_index,
+        digest=masked_digest,
     )
 
 

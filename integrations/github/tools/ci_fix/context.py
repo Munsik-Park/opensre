@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Final
 from urllib.parse import quote
 
-from infrastructure.safety.masking import MaskingPolicy, MaskingRules
+from infrastructure.safety.masking import turn_masking_rules
 from integrations.github.repo_scope import detect_git_remote_repo_scope
 from integrations.github.tools.ci_fix.errors import (
     ERR_INVALID_INPUT,
@@ -480,7 +480,7 @@ def _log_excerpt(raw: str) -> str:
 
 def build_fix_task(ctx: CiFixContext, *, base_merged: bool) -> str:
     """Coding-agent task for the failing checks; ``base_merged`` notes the head now includes the base."""
-    masker = MaskingRules(MaskingPolicy.from_env())
+    masker = turn_masking_rules()
     if ctx.is_branch_target:
         branch = ctx.target_branch or ctx.base_branch or ctx.head_branch
         lines = [

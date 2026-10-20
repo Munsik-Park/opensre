@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from config.constants.conversation_history import (
@@ -42,6 +42,7 @@ from core.state.transcript_window import (
     summary_text,
 )
 from core.state.turn_evidence import ITEM_ASSISTANT, ITEM_TOOL_RESULTS, cap_text
+from infrastructure.safety.masking import MaskingRules, request_masking_rules
 
 logger = logging.getLogger(__name__)
 
@@ -349,22 +350,51 @@ def _model_summary(
         if not llm_compaction_enabled():
             return ""
         summarizer = _default_summarizer
-    prompt = "\n\n".join(
-        part
-        for part in (
-            COMPACTION_PROMPT,
-            f"--- Summary of turns before these ---\n{prior}" if prior else "",
-            "--- Turns to summarize (oldest first) ---\n" + _render_turns(compacted, evidence),
-        )
-        if part
-    )
     try:
-        return str(summarizer(prompt) or "").strip()
+        rules = request_masking_rules()
+        prior, compacted, evidence = _masked_turns(rules, prior, compacted, evidence)
+        prompt = "\n\n".join(
+            part
+            for part in (
+                COMPACTION_PROMPT,
+                f"--- Summary of turns before these ---\n{prior}" if prior else "",
+                "--- Turns to summarize (oldest first) ---\n" + _render_turns(compacted, evidence),
+            )
+            if part
+        )
+        return rules.unmask(str(summarizer(prompt) or "")).strip()
     except Exception:  # noqa: BLE001 - compaction falls back instead of failing the turn
         logger.debug(
             "[compaction] model summary failed; using the deterministic one", exc_info=True
         )
         return ""
+
+
+def _masked_turns(
+    rules: MaskingRules,
+    prior: str,
+    compacted: Sequence[tuple[str, str]],
+    evidence: Sequence[TurnEvidence],
+) -> tuple[str, list[tuple[str, str]], list[TurnEvidence]]:
+    """The summary inputs masked under one mapping, before they are rendered or cut."""
+    masked_prior, texts, records = rules.mask_batch(
+        [
+            prior,
+            tuple(text for _, text in compacted),
+            tuple(
+                (record.user_text, record.assistant_text, record.typed_text, record.items)
+                for record in evidence
+            ),
+        ]
+    )
+    return (
+        masked_prior,
+        [(role, text) for (role, _), text in zip(compacted, texts, strict=True)],
+        [
+            replace(record, user_text=user, assistant_text=assistant, typed_text=typed, items=items)
+            for record, (user, assistant, typed, items) in zip(evidence, records, strict=True)
+        ],
+    )
 
 
 def _default_summarizer(prompt: str) -> str:

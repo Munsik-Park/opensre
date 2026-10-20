@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, Literal
 
-from infrastructure.safety.masking import MaskingPolicy, MaskingRules
+from infrastructure.safety.masking import turn_masking_rules
 from integrations.github.client import GitHubApiError, GitHubRestClient
 from integrations.github.repo_scope import detect_git_remote_repo_scope
 from integrations.github.tools.security_fix.branches import fix_branch_stem, open_fix_branches
@@ -760,7 +760,7 @@ def _text(value: Any) -> str:
 
 
 def _masked_lines(lines: list[str]) -> str:
-    masker = MaskingRules(MaskingPolicy.from_env())
+    masker = turn_masking_rules()
     return "\n".join(masker.mask(_text(line)) for line in lines if line.strip() or line == "")
 
 

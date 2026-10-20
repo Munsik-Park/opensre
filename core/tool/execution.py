@@ -281,6 +281,7 @@ def execute_tool_calls(
     should_stop: Callable[[], bool] | None = None,
     on_call_start: Callable[[ToolCall], None] | None = None,
     iteration: int | None = None,
+    restore_result: Callable[[ToolExecutionResult], ToolExecutionResult] | None = None,
 ) -> list[ToolExecutionResult]:
     """Execute provider-requested tools sequentially and return structured results.
 
@@ -301,6 +302,9 @@ def execute_tool_calls(
 
     ``iteration`` is the loop iteration that requested the calls; analytics
     records it beside each call's position in the response.
+
+    ``restore_result`` rewrites each executed call's result before its
+    ``after_tool_call`` hook and every later reader see it.
     """
 
     hooks = hooks or ToolExecutionHooks()
@@ -372,6 +376,7 @@ def execute_tool_calls(
                 runtime_resources=runtime_resources,
                 hooks=hooks,
                 span_attrs=span_attrs,
+                restore_result=restore_result,
             )
             _trace_error_message(span_attrs, result)
             observation.update(
@@ -661,6 +666,7 @@ def _execute_one_tool_call(
     runtime_resources: dict[str, Any],
     hooks: ToolExecutionHooks,
     span_attrs: dict[str, Any],
+    restore_result: Callable[[ToolExecutionResult], ToolExecutionResult] | None = None,
 ) -> ToolExecutionResult:
     """Run one validated tool call; record outcome on ``span_attrs``."""
     tool = tool_map.get(tc.name)
@@ -715,6 +721,8 @@ def _execute_one_tool_call(
             hooks=hooks,
         )
         result = _normalize_result(raw, tool_name=tc.name)
+        if restore_result is not None:
+            result = restore_result(result)
         patch = _run_after_hook(hooks, request, result)
         if patch is not None:
             result = _apply_patch(result, patch)

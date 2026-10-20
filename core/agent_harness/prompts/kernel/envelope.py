@@ -79,6 +79,11 @@ _CACHED_TIERS: frozenset[PromptTier] = frozenset(
     {PromptTier.STABLE, PromptTier.CONTEXT, PromptTier.VOLATILE}
 )
 
+#: Kinds whose text OpenSRE authors; masking leaves their rendered text as written.
+_AUTHORED_KINDS: frozenset[PromptBlockKind] = frozenset(
+    {PromptBlockKind.SYSTEM, PromptBlockKind.RULE}
+)
+
 #: Layer order the prompt is emitted in, so the layout is a property of the
 #: envelope rather than of the order a builder happens to append in.
 _TIER_ORDER: dict[PromptTier, int] = {tier: index for index, tier in enumerate(PromptTier)}
@@ -206,6 +211,11 @@ class PromptEnvelope:
     def render_ephemeral(self) -> str:
         """Render the per-turn blocks that must stay out of the cached prefix."""
         return self._render(self._partition()[1])
+
+    def authored_texts(self) -> tuple[str, ...]:
+        """The rendered text of every non-empty ``SYSTEM`` or ``RULE`` block."""
+        rendered = (block.render() for block in self.blocks if block.kind in _AUTHORED_KINDS)
+        return tuple(text for text in rendered if text)
 
 
 __all__ = ["PromptBlock", "PromptBlockId", "PromptBlockKind", "PromptEnvelope", "PromptTier"]

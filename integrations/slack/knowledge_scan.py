@@ -46,6 +46,7 @@ from core.domain.knowledge import (
 )
 from core.domain.memory import MAX_BODY_CHARS, MemoryType, redact_memory_unsafe_text
 from core.llm.shared.structured_output import extract_json_payload
+from infrastructure.safety.masking import request_masking_rules
 from infrastructure.text.truncation import clip_line
 from integrations.slack.web_client import (
     SlackBotTarget,
@@ -287,17 +288,21 @@ def summarize_workspace(
     sample_lines = "\n".join(
         f"#{name}:\n" + "\n".join(f"- {text}" for text in texts) for name, texts in samples.items()
     )
-    # Fields are redacted as they are read; redact the assembled prompt too, so
-    # nothing Slack-authored reaches the model unredacted whatever its source.
-    prompt = redact_memory_unsafe_text(
-        _OVERVIEW_PROMPT.format(
-            workspace=f"{view.name} ({view.url or 'no url'}), {len(view.people)} members",
-            channels=channel_lines or "(none visible)",
-            samples=sample_lines or "(none read)",
-        )
-    )
     try:
-        reply = summarize(prompt)
+        rules = request_masking_rules()
+        workspace, channels, sample_text = rules.mask_batch(
+            [
+                f"{view.name} ({view.url or 'no url'}), {len(view.people)} members",
+                channel_lines or "(none visible)",
+                sample_lines or "(none read)",
+            ]
+        )
+        # Fields are redacted as they are read; redact the assembled prompt too, so
+        # nothing Slack-authored reaches the model unredacted whatever its source.
+        prompt = redact_memory_unsafe_text(
+            _OVERVIEW_PROMPT.format(workspace=workspace, channels=channels, samples=sample_text)
+        )
+        reply = rules.unmask(summarize(prompt))
     except Exception as exc:  # noqa: BLE001 - a provider failure keeps the last summary
         logger.warning("[knowledge] slack overview failed (%s)", type(exc).__name__)
         return None

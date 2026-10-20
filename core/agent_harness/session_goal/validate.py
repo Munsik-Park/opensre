@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from core.agent_harness.session_goal.review_input import review_input
 from core.llm.shared.structured_output import StructuredOutputClient
 from core.llm.types import AgentLLMClient
+from infrastructure.safety.masking import turn_masking_rules
 
 log = logging.getLogger(__name__)
 
@@ -79,21 +80,25 @@ def invoke_checklist_tick_validator(
     findings: tuple[str, ...] = (),
     prior_tool_evidence: tuple[str, ...] | None = (),
 ) -> ChecklistTickVerdict | None:
-    """Return per-item verdicts, or ``None`` on transport / parse failure."""
+    """Return per-item verdicts, or ``None`` on masking / transport / parse failure."""
     if not ticked:
         return ChecklistTickVerdict(items=[])
-    prompt = review_input(
-        condition=condition,
-        reply=reply,
-        evidence=evidence,
-        checklist=_ticked_block(ticked),
-        tool_evidence=tool_evidence,
-        findings=findings,
-        prior_tool_evidence=prior_tool_evidence,
-    )
-    if prompt is None:
-        return None
     try:
+        rules = turn_masking_rules()
+        masked = rules.mask_batch(
+            [condition, reply, _ticked_block(ticked), tool_evidence, findings, prior_tool_evidence]
+        )
+        prompt = review_input(
+            condition=masked[0],
+            reply=masked[1],
+            evidence=evidence,
+            checklist=masked[2],
+            tool_evidence=masked[3],
+            findings=masked[4],
+            prior_tool_evidence=masked[5],
+        )
+        if prompt is None:
+            return None
         factory = getattr(llm, "with_structured_output", None)
         if callable(factory):
             parsed = factory(ChecklistTickVerdict).invoke(f"{_VALIDATE_SYSTEM}\n\n{prompt}")
@@ -112,7 +117,8 @@ def invoke_checklist_tick_validator(
         except Exception:
             log.debug("checklist tick validator parse failed", exc_info=True)
             return None
-    return parsed
+    restored: ChecklistTickVerdict = rules.unmask_value(parsed)
+    return restored
 
 
 def kept_tick_indices(

@@ -22,6 +22,7 @@ import contextvars
 import logging
 import threading
 import time
+from dataclasses import replace
 from typing import Any
 
 from core.domain.memory import (
@@ -31,6 +32,7 @@ from core.domain.memory import (
     memory_dir,
     redact_memory_unsafe_text,
 )
+from infrastructure.safety.masking import MaskingRules, request_masking_rules
 
 logger = logging.getLogger(__name__)
 
@@ -176,11 +178,35 @@ def _consolidation_llm() -> Any:
     return get_llm(LLMRole(CONSOLIDATION_LLM_ROLE))
 
 
+def _masked_source(rules: MaskingRules, source: ConsolidationInput) -> ConsolidationInput:
+    """``source`` with every text the summary prompt shows masked under one mapping."""
+    memories, summaries, current = rules.mask_batch(
+        [
+            tuple((record.slug, record.description, record.body) for record in source.memories),
+            tuple(summary.text for summary in source.session_summaries),
+            source.current_summary,
+        ]
+    )
+    return replace(
+        source,
+        memories=tuple(
+            replace(record, slug=slug, description=description, body=body)
+            for record, (slug, description, body) in zip(source.memories, memories, strict=True)
+        ),
+        session_summaries=tuple(
+            replace(summary, text=text)
+            for summary, text in zip(source.session_summaries, summaries, strict=True)
+        ),
+        current_summary=current,
+    )
+
+
 def summarize_with_llm(source: ConsolidationInput) -> str:
     """Ask the LLM for a new ``memory_summary.md``; raises when the LLM is unavailable."""
-    response = _consolidation_llm().invoke(build_summary_prompt(source))
+    rules = request_masking_rules()
+    response = _consolidation_llm().invoke(build_summary_prompt(_masked_source(rules, source)))
     content = getattr(response, "content", response)
-    return content if isinstance(content, str) else str(content)
+    return rules.unmask(content if isinstance(content, str) else str(content))
 
 
 __all__ = [

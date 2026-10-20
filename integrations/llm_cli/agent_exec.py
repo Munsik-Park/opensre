@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from typing import IO
 
 from infrastructure.process.turn_capacity import HEAVY_WORK_BUSY_MESSAGE, heavy_work_slot
-from infrastructure.safety.masking import MaskingPolicy, MaskingRules
+from infrastructure.safety.masking import turn_masking_rules
 
 _MAX_OUTPUT_CHARS = 8000
 _POLL_INTERVAL_SEC = 0.5
@@ -328,7 +328,7 @@ def classify_agent_outcome(
     """Classify a run into success / error from output, exit code, and changes."""
     # Mask free-text fields (the agent may echo env/secrets); the diff is handled by
     # the caller verbatim since masking would corrupt code that must be reviewed.
-    masker = MaskingRules(MaskingPolicy.from_env())
+    masker = turn_masking_rules()
     out_text = outcome.stdout.strip()
     err_text = outcome.stderr.strip()
     summary = masker.mask(out_text[:_MAX_OUTPUT_CHARS])

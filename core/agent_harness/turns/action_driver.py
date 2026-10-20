@@ -115,6 +115,11 @@ from infrastructure.analytics.react_turn import run_react_agent_with_telemetry
 from infrastructure.observability.trace.decisions import record_decision
 from infrastructure.observability.trace.prompts import persist_turn_system_prompt
 from infrastructure.observability.trace.spans import component_span
+from infrastructure.safety.masking import (
+    authored_texts_in_scope,
+    masking_turn_scope,
+    restore_turn_text,
+)
 from infrastructure.text import is_data_blob
 from infrastructure.text.plan_snapshots import strip_plan_snapshots
 
@@ -791,6 +796,7 @@ def _build_action_agent(
     prompt_context = ""
     history: tuple[Any, ...] = ()
     prompt_size: PromptSize | None = None
+    authored_texts: tuple[str, ...] = ()
 
     if bang_command is not None:
         # Explicit `!` shell escape: dispatch the verbatim text as a shell_run call.
@@ -829,6 +835,7 @@ def _build_action_agent(
         # facts) rides with the user message so Anthropic's system
         # cache_control breakpoint is not invalidated every turn.
         system = envelope.render_cached()
+        authored_texts = (*envelope.authored_texts(), *authored_texts_in_scope())
         prompt_skill, prompt_context = action_prompt_skill_and_context(envelope)
         ephemeral = envelope.render_ephemeral()
         user_message = build_action_user_message(message, prefix=ephemeral)
@@ -905,6 +912,7 @@ def _build_action_agent(
         tool_hooks=tool_hooks,
         on_runtime_event=on_runtime_event,
         goal=goal,
+        authored_texts=authored_texts,
     )
     return ActionTurnPlan(
         agent=build_agent(config),
@@ -1355,6 +1363,15 @@ def _run_action_turn(
     session: SessionState,
     args: _ActionTurnArgs,
 ) -> ToolCallingTurnResult:
+    with masking_turn_scope(getattr(session, "session_id", None)):
+        return _run_scoped_action_turn(message, session, args)
+
+
+def _run_scoped_action_turn(
+    message: str,
+    session: SessionState,
+    args: _ActionTurnArgs,
+) -> ToolCallingTurnResult:
     turn_plan = args.turn_plan
     turn_snapshot = turn_plan.snapshot if turn_plan is not None else None
     # Read the turn's resolved integrations once, so the action tools and the
@@ -1443,7 +1460,7 @@ def _run_action_turn(
         # successful turn and exit zero even though no model work completed.
         if isinstance(exc, LLMCreditExhaustedError):
             raise
-        error_text = str(exc)
+        error_text = restore_turn_text(str(exc))
         if args.error_reporter is not None:
             args.error_reporter.report(
                 exc, context="core.agent_harness.action_driver", expected=True

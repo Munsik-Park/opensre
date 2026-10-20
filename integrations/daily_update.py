@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from config.constants.paths import REPO_ROOT
 from config.version import get_opensre_version
 from core.llm.factory import LLMRole, get_llm
+from infrastructure.safety.masking import MaskingRules, request_masking_rules
 from integrations._validation_helpers import report_validation_failure
 
 logger = logging.getLogger(__name__)
@@ -513,6 +514,49 @@ def build_fallback_highlights(pull_requests: tuple[PullRequestSummary, ...]) -> 
     return tuple(highlights)
 
 
+def _masked_prompt_inputs(
+    rules: MaskingRules,
+    repository: str,
+    pull_requests: tuple[PullRequestSummary, ...],
+) -> tuple[str, tuple[PullRequestSummary, ...]]:
+    """The repository and pull requests with every text the prompt shows masked under one mapping."""
+    masked_repository, fields = rules.mask_batch(
+        [
+            repository,
+            tuple(
+                (
+                    pr.title,
+                    pr.author_login,
+                    pr.author_display_name,
+                    pr.body,
+                    pr.labels,
+                    pr.changed_files,
+                    tuple((c.login, c.display_name) for c in pr.contributors),
+                )
+                for pr in pull_requests
+            ),
+        ]
+    )
+    return masked_repository, tuple(
+        replace(
+            pr,
+            title=title,
+            author_login=login,
+            author_display_name=display_name,
+            body=body,
+            labels=labels,
+            changed_files=changed_files,
+            contributors=tuple(
+                replace(contributor, login=c_login, display_name=c_name)
+                for contributor, (c_login, c_name) in zip(pr.contributors, people, strict=True)
+            ),
+        )
+        for pr, (title, login, display_name, body, labels, changed_files, people) in zip(
+            pull_requests, fields, strict=True
+        )
+    )
+
+
 def summarize_highlights(
     repository: str,
     window: DailyWindow,
@@ -522,12 +566,18 @@ def summarize_highlights(
     if not pull_requests:
         return build_fallback_highlights(pull_requests), True
 
-    prompt = _build_summary_prompt(repository, window, pull_requests)
     try:
+        rules = request_masking_rules()
+        masked_repository, masked_pull_requests = _masked_prompt_inputs(
+            rules, repository, pull_requests
+        )
+        prompt = _build_summary_prompt(masked_repository, window, masked_pull_requests)
         response = (
             get_llm(LLMRole.REASONING).with_structured_output(HighlightResponse).invoke(prompt)
         )
-        highlights = tuple(item.strip() for item in response.highlights if item.strip())
+        highlights = tuple(
+            rules.unmask(item).strip() for item in response.highlights if item.strip()
+        )
         if highlights:
             return highlights, False
     except Exception as exc:

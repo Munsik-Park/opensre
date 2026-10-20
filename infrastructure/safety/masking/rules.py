@@ -1,22 +1,45 @@
 """Per-run masking rules.
 
 ``MaskingRules`` holds a ``MaskingPolicy`` and a stable placeholder map
-for the lifetime of a single run. Mask and unmask operations run
-over strings, lists, and dicts. The placeholder map is serialized to
-``AgentState["masking_map"]`` so it survives node-to-node transitions.
+for the lifetime of a single run (an agent turn, or one request outside a
+turn). Mask and unmask operations run over strings, lists, and dicts. The map
+lives in memory only and dies with its run.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from infrastructure.safety.masking.detectors import DetectedIdentifier, find_identifiers
+from pydantic import BaseModel
+
+from infrastructure.safety.masking.detectors import (
+    DetectedIdentifier,
+    find_identifiers,
+    structured_kind,
+)
 from infrastructure.safety.masking.policy import MaskingPolicy, compile_extra_patterns
 
 # Placeholders are always ``<KIND_N>`` (no nested ``<>``). One scan finds every
 # token; dict lookup restores known ones and leaves unknown angle-brackets alone.
 _PLACEHOLDER_TOKEN_RE = re.compile(r"<[^<>]+>")
+
+# Characters that continue an identifier token, so a known value is replaced
+# only where it stands alone: ``privacy-test`` in ``privacy-test/pod`` but not
+# inside ``privacy-test-7b5b4cbd55-abcde``.
+_TOKEN_CHARS = r"A-Za-z0-9_\-"
+
+# A value captured only after a whitespace label propagates when its shape sets
+# it apart from a word: at least one letter with a digit or one of these.
+_SHAPE_MARKS = frozenset("-_.@:")
+
+#: One string's maskable segments (start, end) with the detections inside each.
+type _Plan = list[tuple[int, int, list[DetectedIdentifier]]]
+
+
+class MaskingError(RuntimeError):
+    """Masking a request failed; the message names the failure's type, never the text."""
 
 
 class MaskingRules:
@@ -38,6 +61,10 @@ class MaskingRules:
         self._counters: dict[str, int] = self._derive_counters()
         # Compile extra regex patterns once per context to avoid per-call work
         self._compiled_extras: dict[str, re.Pattern[str]] = compile_extra_patterns(policy)
+        # Originals also replaced where no detector sees them (the set only grows).
+        self._propagating: set[str] = set()
+        self._propagation_re: re.Pattern[str] | None = None
+        self._propagation_size = 0
 
     @classmethod
     def from_state(cls, state: dict[str, Any]) -> MaskingRules:
@@ -100,6 +127,15 @@ class MaskingRules:
         self._reverse_map[value] = placeholder
         return placeholder
 
+    def _detect(self, text: str) -> list[DetectedIdentifier]:
+        """Find identifiers in ``text``, giving each a placeholder and its propagation class."""
+        matches = find_identifiers(text, self.policy, self._compiled_extras)
+        for match in matches:
+            self._ensure_placeholder(match.kind, match.value)
+            if not match.bare_label or _distinct_shape(match.value):
+                self._propagating.add(match.value)
+        return matches
+
     def mask(self, text: str) -> str:
         """Return ``text`` with sensitive identifiers replaced by placeholders.
 
@@ -107,7 +143,7 @@ class MaskingRules:
         """
         if not self.policy.enabled or not text:
             return text
-        matches = find_identifiers(text, self.policy, self._compiled_extras)
+        matches = self._detect(text)
         if not matches:
             return text
         return self._apply_replacements(text, matches)
@@ -145,32 +181,250 @@ class MaskingRules:
         )
 
     def mask_value(self, value: Any) -> Any:
-        """Recursively mask strings inside dicts/lists/tuples."""
+        """Recursively mask strings inside dicts/lists/tuples.
+
+        A string under a dict key that labels namespace, cluster or service_name
+        is masked as that kind when it has the kind's shape.
+        """
         if isinstance(value, str):
             return self.mask(value)
         if isinstance(value, dict):
-            return {k: self.mask_value(v) for k, v in value.items()}
+            return {k: self._mask_item(k, v) for k, v in value.items()}
         if isinstance(value, list):
             return [self.mask_value(v) for v in value]
         if isinstance(value, tuple):
             return tuple(self.mask_value(v) for v in value)
         return value
 
-    def unmask_value(self, value: Any) -> Any:
-        """Recursively unmask strings inside dicts/lists/tuples."""
+    def _mask_item(self, key: Any, value: Any) -> Any:
+        kind = self._structured_kind(key, value)
+        if kind is None:
+            return self.mask_value(value)
+        self._propagating.add(value)
+        return self._ensure_placeholder(kind, value)
+
+    def _structured_kind(self, key: Any, value: Any) -> str | None:
+        if not self.policy.enabled or not isinstance(key, str) or not isinstance(value, str):
+            return None
+        return structured_kind(key, value, self.policy)
+
+    def unmask_value(self, value: Any, *, keys: bool = False) -> Any:
+        """Recursively unmask strings inside dicts/lists/tuples and pydantic models.
+
+        ``keys`` also restores string dict keys.
+        """
+        if not self._placeholder_map:
+            return value
         if isinstance(value, str):
             return self.unmask(value)
+        if isinstance(value, BaseModel):
+            return type(value).model_validate(self.unmask_value(value.model_dump(), keys=keys))
         if isinstance(value, dict):
-            return {k: self.unmask_value(v) for k, v in value.items()}
+            return {
+                (self.unmask(k) if keys and isinstance(k, str) else k): self.unmask_value(
+                    v, keys=keys
+                )
+                for k, v in value.items()
+            }
         if isinstance(value, list):
-            return [self.unmask_value(v) for v in value]
+            return [self.unmask_value(v, keys=keys) for v in value]
         if isinstance(value, tuple):
-            return tuple(self.unmask_value(v) for v in value)
+            return tuple(self.unmask_value(v, keys=keys) for v in value)
         return value
+
+    def unmask_tracked(self, value: Any) -> tuple[Any, frozenset[str]]:
+        """``unmask_value`` that also returns the originals it restored."""
+        restored: set[str] = set()
+        mapping = self._placeholder_map
+
+        def _restore(match: re.Match[str]) -> str:
+            original = mapping.get(match.group(0))
+            if original is None:
+                return match.group(0)
+            restored.add(original)
+            return original
+
+        def _walk(item: Any) -> Any:
+            if isinstance(item, str):
+                return _PLACEHOLDER_TOKEN_RE.sub(_restore, item) if "<" in item else item
+            if isinstance(item, dict):
+                return {k: _walk(v) for k, v in item.items()}
+            if isinstance(item, list):
+                return [_walk(v) for v in item]
+            if isinstance(item, tuple):
+                return tuple(_walk(v) for v in item)
+            return item
+
+        if not mapping:
+            return value, frozenset()
+        return _walk(value), frozenset(restored)
+
+    def promote(self, originals: Iterable[str]) -> None:
+        """Replace these known originals in every later request, wherever they appear."""
+        self._propagating.update(o for o in originals if o in self._reverse_map)
+
+    def remask_originals(self, text: str, originals: Iterable[str]) -> str:
+        """Put the placeholders back for ``originals`` where they stand alone in ``text``."""
+        known = [o for o in originals if o in self._reverse_map]
+        if not known or not text:
+            return text
+        pattern = _token_pattern(known)
+        return pattern.sub(lambda match: self._reverse_map[match.group(0)], text)
+
+    def mask_batch(
+        self,
+        values: Sequence[Any],
+        *,
+        protected: Sequence[str] = (),
+        protect: Sequence[bool] = (),
+    ) -> list[Any]:
+        """Mask the texts and values of one request together.
+
+        Detection runs over every value first, in order, so placeholders number
+        in that order and a value whose class rises anywhere in the request
+        propagates into all of it; then each value is rendered with its
+        detections replaced and every propagating original replaced where it
+        stands alone. ``protect[i]`` keeps each occurrence of a ``protected``
+        text inside ``values[i]`` as written. Identity when disabled.
+        """
+        if not self.policy.enabled:
+            return list(values)
+        authored = tuple(text for text in protected if text)
+        flags = [bool(protect[i]) if i < len(protect) else False for i in range(len(values))]
+        plans: dict[tuple[str, bool], _Plan] = {}
+        try:
+            for value, flag in zip(values, flags, strict=True):
+                self._walk_detect(value, authored if flag else (), flag, plans)
+            render = self._renderer()
+            return [
+                self._walk_render(value, flag, plans, render)
+                for value, flag in zip(values, flags, strict=True)
+            ]
+        except Exception as exc:
+            # The failure's own message may quote the text being masked.
+            raise MaskingError(f"masking failed: {type(exc).__name__}") from exc
+
+    def _walk_detect(
+        self,
+        value: Any,
+        authored: tuple[str, ...],
+        flag: bool,
+        plans: dict[tuple[str, bool], _Plan],
+    ) -> None:
+        if isinstance(value, str):
+            key = (value, flag)
+            if key not in plans:
+                plans[key] = [
+                    (start, end, self._detect(value[start:end]))
+                    for start, end in _maskable_segments(value, authored)
+                ]
+        elif isinstance(value, dict):
+            for item_key, item in value.items():
+                kind = self._structured_kind(item_key, item)
+                if kind is not None:
+                    self._ensure_placeholder(kind, item)
+                    self._propagating.add(item)
+                else:
+                    self._walk_detect(item, authored, flag, plans)
+        elif isinstance(value, list | tuple):
+            for item in value:
+                self._walk_detect(item, authored, flag, plans)
+
+    def _walk_render(
+        self,
+        value: Any,
+        flag: bool,
+        plans: dict[tuple[str, bool], _Plan],
+        render: Callable[[str], str],
+    ) -> Any:
+        if isinstance(value, str):
+            return self._render_text(value, plans[(value, flag)], render)
+        if isinstance(value, dict):
+            return {
+                item_key: (
+                    self._reverse_map[item]
+                    if self._structured_kind(item_key, item) is not None
+                    else self._walk_render(item, flag, plans, render)
+                )
+                for item_key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._walk_render(item, flag, plans, render) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._walk_render(item, flag, plans, render) for item in value)
+        return value
+
+    def _render_text(self, text: str, plan: _Plan, render: Callable[[str], str]) -> str:
+        parts: list[str] = []
+        cursor = 0
+        for start, end, matches in plan:
+            parts.append(text[cursor:start])
+            segment = text[start:end]
+            position = 0
+            for match in matches:
+                parts.append(render(segment[position : match.start]))
+                parts.append(self._reverse_map[match.value])
+                position = match.end
+            parts.append(render(segment[position:]))
+            cursor = end
+        parts.append(text[cursor:])
+        return "".join(parts)
+
+    def _renderer(self) -> Callable[[str], str]:
+        """Replace every propagating original in a text no detection covered."""
+        if len(self._propagating) != self._propagation_size:
+            self._propagation_re = _token_pattern(self._propagating) if self._propagating else None
+            self._propagation_size = len(self._propagating)
+        pattern = self._propagation_re
+        if pattern is None:
+            return _identity
+        reverse = self._reverse_map
+
+        def _render(text: str) -> str:
+            return pattern.sub(lambda match: reverse[match.group(0)], text) if text else text
+
+        return _render
 
     def to_state(self) -> dict[str, str]:
         """Return the placeholder map in a form suitable for state storage."""
         return dict(self._placeholder_map)
 
 
-__all__ = ["MaskingRules"]
+def _identity(text: str) -> str:
+    return text
+
+
+def _distinct_shape(value: str) -> bool:
+    return any(char.isalpha() for char in value) and any(
+        char.isdigit() or char in _SHAPE_MARKS for char in value
+    )
+
+
+def _token_pattern(originals: Iterable[str]) -> re.Pattern[str]:
+    """Match any of ``originals`` where it stands alone, longest first."""
+    alternatives = "|".join(re.escape(o) for o in sorted(originals, key=len, reverse=True))
+    return re.compile(rf"(?<![{_TOKEN_CHARS}])(?:{alternatives})(?![{_TOKEN_CHARS}])")
+
+
+def _maskable_segments(text: str, authored: tuple[str, ...]) -> list[tuple[int, int]]:
+    """The spans of ``text`` outside every occurrence of an authored text."""
+    protected: list[tuple[int, int]] = []
+    for item in authored:
+        start = text.find(item)
+        while start != -1:
+            protected.append((start, start + len(item)))
+            start = text.find(item, start + len(item))
+    if not protected:
+        return [(0, len(text))]
+    segments: list[tuple[int, int]] = []
+    cursor = 0
+    for start, end in sorted(protected):
+        if start > cursor:
+            segments.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        segments.append((cursor, len(text)))
+    return segments
+
+
+__all__ = ["MaskingError", "MaskingRules"]

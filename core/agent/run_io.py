@@ -58,9 +58,13 @@ class AgentRunInput[RuntimeToolT: RuntimeTool]:
     max_iterations: int
     messages: list[RuntimeMessage]
     max_stagnant_iterations: int | None = None
+    #: OpenSRE-authored texts that reach the provider as written when masking is on.
+    authored_texts: tuple[str, ...] = ()
 
     @classmethod
-    def from_runtime_request(cls, request: Any, *, llm: Any) -> AgentRunInput[RuntimeToolT]:
+    def from_runtime_request(
+        cls, request: Any, *, llm: Any, authored_texts: Sequence[str] = ()
+    ) -> AgentRunInput[RuntimeToolT]:
         """Build from a validated per-turn ``AgentRuntimeRequest`` and a resolved ``llm``.
 
         ``request`` is duck-typed so this DTO stays free of ``agent_harness``:
@@ -80,6 +84,7 @@ class AgentRunInput[RuntimeToolT: RuntimeTool]:
             max_iterations=request.max_iterations,
             messages=messages,
             max_stagnant_iterations=getattr(request, "max_stagnant_iterations", None),
+            authored_texts=tuple(authored_texts),
         )
 
     @classmethod
@@ -94,6 +99,7 @@ class AgentRunInput[RuntimeToolT: RuntimeTool]:
         tool_resources: dict[str, Any],
         max_iterations: int,
         max_stagnant_iterations: int | None = None,
+        authored_texts: Sequence[str] = (),
     ) -> AgentRunInput[RuntimeToolT]:
         """Build from raw messages and a caller's construction-time config."""
         return cls(
@@ -105,6 +111,7 @@ class AgentRunInput[RuntimeToolT: RuntimeTool]:
             max_iterations=max_iterations,
             messages=MessageMapper.to_runtime_messages(messages),
             max_stagnant_iterations=max_stagnant_iterations,
+            authored_texts=tuple(authored_texts),
         )
 
 

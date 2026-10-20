@@ -4,6 +4,9 @@ A ``MaskingPolicy`` decides which kinds of sensitive infrastructure
 identifiers are masked and what extra regex patterns apply. It is built
 fresh per run, so env-var changes between runs are
 picked up. No module-level singleton.
+
+While masking is enabled a setting that cannot be built as configured raises
+:class:`MaskingPolicyError`; a disabled switch never reads the other settings.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import ClassVar
 
@@ -20,6 +24,10 @@ from pydantic import Field, field_validator
 from config.strict_config import StrictConfigModel
 
 logger = logging.getLogger(__name__)
+
+
+class MaskingPolicyError(ValueError):
+    """A masking setting cannot be built as configured; the message names no identifier."""
 
 
 class IdentifierKind(StrEnum):
@@ -34,6 +42,7 @@ class IdentifierKind(StrEnum):
 
 
 ALL_KINDS: tuple[IdentifierKind, ...] = tuple(IdentifierKind)
+_KINDS_BY_NAME: dict[str, IdentifierKind] = {kind.value: kind for kind in IdentifierKind}
 
 
 class MaskingPolicy(StrictConfigModel):
@@ -53,22 +62,27 @@ class MaskingPolicy(StrictConfigModel):
         if value is None or value == "":
             return ALL_KINDS
         if isinstance(value, str):
-            parts = tuple(p.strip() for p in value.split(",") if p.strip())
-            return cls._filter_valid_kinds(parts)
+            return cls._parse_kinds(value.split(","))
         if isinstance(value, list | tuple):
-            parts = tuple(str(p).strip() for p in value if str(p).strip())
-            return cls._filter_valid_kinds(parts)
+            return cls._parse_kinds(str(p) for p in value)
         raise ValueError(f"kinds must be a string or list, got {type(value).__name__}")
 
     @classmethod
-    def _filter_valid_kinds(cls, parts: tuple[str, ...]) -> tuple[IdentifierKind, ...]:
-        valid: list[IdentifierKind] = []
-        for p in parts:
-            if p in ALL_KINDS:
-                valid.append(IdentifierKind(p))
-            else:
-                logger.warning("[masking] ignoring unknown identifier kind: %r", p)
-        return tuple(valid) if valid else ALL_KINDS
+    def _parse_kinds(cls, entries: Iterable[str]) -> tuple[IdentifierKind, ...]:
+        """Kinds named by ``entries``, matched case-insensitively; no entry means every kind."""
+        kinds: list[IdentifierKind] = []
+        for entry in (raw.strip() for raw in entries):
+            if not entry:
+                continue
+            kind = _KINDS_BY_NAME.get(entry.lower())
+            if kind is None:
+                raise MaskingPolicyError(
+                    f"{cls._ENV_KINDS} entry {entry!r} names no masking kind; "
+                    f"known kinds: {', '.join(_KINDS_BY_NAME)}"
+                )
+            if kind not in kinds:
+                kinds.append(kind)
+        return tuple(kinds) if kinds else ALL_KINDS
 
     @field_validator("extra_patterns")
     @classmethod
@@ -82,38 +96,42 @@ class MaskingPolicy(StrictConfigModel):
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> MaskingPolicy:
-        """Build a policy from the current environment (or an injected dict)."""
+        """Build a policy from the current environment (or an injected dict).
+
+        Raises :class:`MaskingPolicyError` when masking is enabled and a setting
+        cannot be built as configured.
+        """
         source = env if env is not None else os.environ
-        enabled = _parse_bool(source.get(cls._ENV_ENABLED, ""))
-        kinds_raw = source.get(cls._ENV_KINDS, "") or ""
-        extra_raw = source.get(cls._ENV_EXTRA_REGEX, "") or ""
-
-        extra_patterns: dict[str, str] = {}
-        if extra_raw.strip():
-            try:
-                parsed = json.loads(extra_raw)
-                if isinstance(parsed, dict):
-                    extra_patterns = {str(k): str(v) for k, v in parsed.items()}
-                else:
-                    logger.warning(
-                        "[masking] %s must be a JSON object, got %s; ignoring",
-                        cls._ENV_EXTRA_REGEX,
-                        type(parsed).__name__,
-                    )
-            except json.JSONDecodeError as exc:
-                logger.warning(
-                    "[masking] failed to parse %s as JSON: %s; ignoring",
-                    cls._ENV_EXTRA_REGEX,
-                    exc,
-                )
-
+        if not _parse_bool(source.get(cls._ENV_ENABLED, "")):
+            return cls()
+        kinds = cls._parse_kinds((source.get(cls._ENV_KINDS, "") or "").split(","))
+        extra_patterns = cls._parse_extra_patterns(source.get(cls._ENV_EXTRA_REGEX, "") or "")
         return cls.model_validate(
-            {
-                "enabled": enabled,
-                "kinds": kinds_raw,
-                "extra_patterns": extra_patterns,
-            }
+            {"enabled": True, "kinds": kinds, "extra_patterns": extra_patterns}
         )
+
+    @classmethod
+    def _parse_extra_patterns(cls, raw: str) -> dict[str, str]:
+        """Label → regex from the JSON setting; every failure names the setting, never a pattern."""
+        if not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            raise MaskingPolicyError(f"{cls._ENV_EXTRA_REGEX} is not valid JSON") from None
+        if not isinstance(parsed, dict):
+            raise MaskingPolicyError(
+                f"{cls._ENV_EXTRA_REGEX} must be a JSON object of label to regular expression"
+            )
+        patterns = {str(label): str(pattern) for label, pattern in parsed.items()}
+        for label, pattern in patterns.items():
+            try:
+                re.compile(pattern)
+            except re.error:
+                raise MaskingPolicyError(
+                    f"{cls._ENV_EXTRA_REGEX} entry {label!r} is not a valid regular expression"
+                ) from None
+        return patterns
 
     def is_kind_enabled(self, kind: IdentifierKind) -> bool:
         return self.enabled and kind in self.kinds
@@ -144,5 +162,6 @@ __all__ = [
     "ALL_KINDS",
     "IdentifierKind",
     "MaskingPolicy",
+    "MaskingPolicyError",
     "compile_extra_patterns",
 ]

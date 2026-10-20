@@ -47,6 +47,7 @@ from core.agent_harness.turns.host_cancel import HostCancelReason
 from core.agent_harness.turns.turn_plan import TurnPlan
 from core.agent_harness.turns.turn_results import ToolCallingTurnResult, TurnResult
 from core.tool.execution import ToolExecutionHooks
+from infrastructure.safety.masking import masking_turn_scope
 
 
 class AgentBusyError(RuntimeError):
@@ -176,7 +177,8 @@ class HeadlessAgent:
         session = self._session
         if binding is not None and binding.session is not None:
             session = binding.session
-        with self._one_turn_at_a_time():
+        # One masking scope spans the goal loop's turns and their goal checks.
+        with self._one_turn_at_a_time(), masking_turn_scope(session.session_id):
             return run_until_session_goal(
                 _one_turn,
                 session,

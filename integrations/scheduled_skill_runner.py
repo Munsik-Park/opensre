@@ -9,6 +9,7 @@ from core.agent_harness import (
     resolve_scheduled_skill,
     validate_skill_inputs,
 )
+from infrastructure.safety.masking import declared_authored_texts
 from infrastructure.scheduling.scheduler.agent_runner import AgentPayload
 from infrastructure.scheduling.scheduler.schedule_cancel import cancel_requested_for_payload
 from infrastructure.scheduling.scheduler.types import TaskReport
@@ -76,13 +77,15 @@ def run_scheduled_recurring_skill(payload: AgentPayload) -> TaskReport:
         f"{fetch_section}\n"
         f"Skill recipe:\n{resolved.body}"
     )
-    result = AgentSession.run_headless_turn(
-        message,
-        logger=logger,
-        is_tty=False,
-        unattended=True,
-        cancel_requested=cancel_requested_for_payload(payload),
-    )
+    # The recipe is a pinned revision of the card: it reaches the provider as written.
+    with declared_authored_texts(resolved.body):
+        result = AgentSession.run_headless_turn(
+            message,
+            logger=logger,
+            is_tty=False,
+            unattended=True,
+            cancel_requested=cancel_requested_for_payload(payload),
+        )
     report = result.primary_response_text
     if not result.answered or not report:
         raise RuntimeError(
