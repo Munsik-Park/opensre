@@ -432,7 +432,7 @@ def test_a_pending_reminder_requested_in_another_form_is_delivered_once(
 
 
 def _store_reordered_copy(task_id: str) -> ScheduledTask:
-    """Store the same reminder again with its targets reversed, as a re-request once could."""
+    """Store the same reminder again with its targets reversed: a second equivalent row."""
     original = get_task(task_id)
     assert original is not None
     targets = json.loads(original.params["delivery_targets"])[::-1]
