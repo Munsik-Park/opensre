@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from functools import partial
 
 from config.constants.gateway import ATTACHMENT_MAX_FILE_CHARS
+from infrastructure.safety.masking import turn_masking_rules
 
 _HEAD_CHARS = 26_000
 _TAIL_CHARS = 12_000
@@ -52,6 +54,11 @@ def is_text_mimetype(mimetype: str) -> bool:
 
 
 def truncate_attachment_text(text: str, *, max_chars: int = ATTACHMENT_MAX_FILE_CHARS) -> str:
+    """Head and tail of ``text`` past ``max_chars``, cut on its masked form and restored."""
+    return turn_masking_rules().cut_masked(text, partial(_head_and_tail, max_chars=max_chars))
+
+
+def _head_and_tail(text: str, *, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     omitted = len(text) - _HEAD_CHARS - _TAIL_CHARS
@@ -60,7 +67,7 @@ def truncate_attachment_text(text: str, *, max_chars: int = ATTACHMENT_MAX_FILE_
 
 def budgeted_section(header: str, raw_text: str, remaining: int) -> tuple[str, int]:
     """Scrub and truncate ``raw_text`` to the remaining budget under ``header``."""
-    body = scrub_secrets(raw_text)[:remaining]
+    body = turn_masking_rules().cut_masked(scrub_secrets(raw_text), lambda text: text[:remaining])
     return f"{header}\n{body}", len(body)
 
 

@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from infrastructure.safety.masking import turn_masking_rules
+
 # Enough to show a whole interrupted parallel batch without flooding the prompt.
 _NOTE_MAX_INTENTS = 5
 _ARGS_PREVIEW_MAX_CHARS = 160
@@ -49,9 +51,10 @@ def _describe_arguments(args: Any) -> str:
             return " ".join([command, *(str(item) for item in extra)])
         return command
     try:
-        return json.dumps(args, ensure_ascii=False, default=str)[:_ARGS_PREVIEW_MAX_CHARS]
+        text = json.dumps(args, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
-        return str(args)[:_ARGS_PREVIEW_MAX_CHARS]
+        text = str(args)
+    return turn_masking_rules().cut_masked(text, lambda value: value[:_ARGS_PREVIEW_MAX_CHARS])
 
 
 def _describe_intent(intent: dict[str, Any]) -> str:

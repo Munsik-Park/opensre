@@ -756,7 +756,9 @@ def _dict_value(value: Any) -> dict[str, Any]:
 
 
 def _text(value: Any) -> str:
-    return str(value or "").strip()[:_MAX_TEXT_CHARS]
+    return turn_masking_rules().cut_masked(
+        str(value or "").strip(), lambda text: text[:_MAX_TEXT_CHARS]
+    )
 
 
 def _masked_lines(lines: list[str]) -> str:

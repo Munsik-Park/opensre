@@ -7,6 +7,7 @@ planner and the conversational assistant see the same multi-turn history.
 from __future__ import annotations
 
 import re
+from functools import partial
 
 from core.agent_harness.session.pending_offer import (
     DispatchablePendingOffer,
@@ -16,6 +17,7 @@ from core.agent_harness.session.want_me_to import offer_from_assistant_content
 from core.state import MAX_CONVERSATION_TURNS
 from core.state.transcript_window import SESSION_SUMMARY_PREFIX
 from infrastructure.harness_providers import strip_message_context_prefix
+from infrastructure.safety.masking import turn_masking_rules
 
 NO_HISTORY_PLACEHOLDER = "(no prior messages in this CLI thread)"
 _ACTION_FACT_MARKERS = (
@@ -202,6 +204,12 @@ def _newest_turn_first(
     return ordered
 
 
+def _cut_fact(chunk: str, limit: int) -> str:
+    if len(chunk) <= limit:
+        return chunk
+    return chunk[:limit].rstrip() + "\n...[truncated]"
+
+
 def format_prior_action_facts(
     messages: list[tuple[str, str]] | tuple[tuple[str, str], ...],
     *,
@@ -254,9 +262,10 @@ def format_prior_action_facts(
     for idx, fact in enumerate(facts, start=1):
         if remaining <= 0:
             break
-        chunk = f"- Prior assistant/tool output {idx}:\n{fact.strip()}"
-        if len(chunk) > remaining:
-            chunk = chunk[:remaining].rstrip() + "\n...[truncated]"
+        chunk = turn_masking_rules().cut_masked(
+            f"- Prior assistant/tool output {idx}:\n{fact.strip()}",
+            partial(_cut_fact, limit=remaining),
+        )
         rendered.append(chunk)
         remaining -= len(chunk) + 2
     return "\n\n".join(rendered)

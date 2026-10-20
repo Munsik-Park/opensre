@@ -6,6 +6,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import Any, Final
 from urllib.parse import quote
 
@@ -475,7 +476,7 @@ def _log_excerpt(raw: str) -> str:
     else:
         interesting = lines[-80:]
     excerpt = "\n".join(interesting).strip()
-    return excerpt[-_MAX_LOG_CHARS:]
+    return turn_masking_rules().cut_masked(excerpt, lambda text: text[-_MAX_LOG_CHARS:])
 
 
 def build_fix_task(ctx: CiFixContext, *, base_merged: bool) -> str:
@@ -527,7 +528,7 @@ def build_fix_task(ctx: CiFixContext, *, base_merged: bool) -> str:
             ]
         )
         if check.log_excerpt and log_budget > 0:
-            excerpt = check.log_excerpt[:log_budget]
+            excerpt = masker.cut_masked(check.log_excerpt, partial(_head, size=log_budget))
             log_budget -= len(excerpt)
             lines.extend(["  Log excerpt:", _indent(excerpt, prefix="    ")])
     lines.extend(
@@ -592,6 +593,10 @@ def _normalize_branch(branch: str | None) -> str:
         if cleaned.startswith(prefix):
             return cleaned.removeprefix(prefix).strip()
     return cleaned
+
+
+def _head(value: str, *, size: int) -> str:
+    return value[:size]
 
 
 def _indent(value: str, *, prefix: str) -> str:

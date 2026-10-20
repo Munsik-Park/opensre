@@ -71,7 +71,7 @@ from core.domain.memory import (
     slugify,
 )
 from infrastructure.analytics.repl_context import get_prompt_turn_id
-from infrastructure.safety.masking import MaskingRules, request_masking_rules
+from infrastructure.safety.masking import MaskingRules, masking_turn_scope, turn_masking_rules
 
 logger = logging.getLogger(__name__)
 
@@ -336,7 +336,9 @@ def extract_memories_from_messages(messages: Sequence[tuple[str, str]]) -> None:
 
 def _extract_memories_safe(job: ExtractionJob) -> None:
     try:
-        _run_extraction(job)
+        # One mapping for this request: the digest is cut on its masked form.
+        with masking_turn_scope(None):
+            _run_extraction(job)
     except Exception:
         logger.debug("[memory] extraction failed", exc_info=True)
     finally:
@@ -351,7 +353,7 @@ def _run_extraction(job: ExtractionJob) -> None:
     if digest.empty:
         return
     ensure_memory_store()
-    rules = request_masking_rules()
+    rules = turn_masking_rules()
     response = _invoke_extraction_llm(_build_prompt(digest.text, rules))
     if not response:
         return
