@@ -224,10 +224,10 @@ class MaskingRules:
     def unmask_resent(self, value: Any) -> Any:
         """``unmask_value`` for content that later requests send again.
 
-        A placeholder is restored only where those requests mask its original again:
-        inside a detection of the restored text, or standing alone when the original
-        propagates. Any other placeholder-shaped token stays as written, since its
-        original would be sent in the clear.
+        A placeholder is restored only where its restored string, checked on its own,
+        would be masked again: inside a detection of the restored text, or standing
+        alone when the original propagates. Any other placeholder-shaped token stays
+        as written. A string later serialized into a larger text is not checked again.
         """
         return self._unmask_walk(value, self._unmask_resent_text, keys=False)
 
