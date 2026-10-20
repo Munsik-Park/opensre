@@ -11,7 +11,10 @@ be written as text (``namespace: x``) or as a quoted key (``"namespace": "x"``,
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Protocol
 
 from infrastructure.safety.masking.policy import (
     IdentifierKind,
@@ -37,8 +40,8 @@ class DetectedIdentifier:
 # only mask the identifier itself (not the preceding label like "kube_namespace:").
 
 # A masked cut runs every detector over a whole over-budget tool result, so each
-# pattern must stay linear on any input. The pod, hostname and email patterns end in
-# an alternative that captures nothing and consumes the run of identifier characters
+# detector must stay linear on any input. The pod and email patterns end in an
+# alternative that captures nothing and consumes the run of identifier characters
 # where the first alternative failed: no later start inside that run can match, so a
 # run is scanned a bounded number of times rather than once from every word start.
 _POD_RE = re.compile(
@@ -94,22 +97,73 @@ _STRUCTURED_KEYS: dict[str, tuple[IdentifierKind, re.Pattern[str]]] = {
     },
 }
 _KIND_HOSTNAME = r"kind-[a-z0-9][-a-z0-9]*"  # local kind clusters
-_HOSTNAME_RE = re.compile(
-    rf"\b(?=[a-z0-9])(?:({_KIND_HOSTNAME}"
-    # ec2-style internal hostnames: ip-10-0-1-23.ec2.internal
-    # Note: the inner character class excludes '.' so the outer (?:\.LABEL)*
-    # has no ambiguity and cannot backtrack exponentially (CodeQL ReDoS).
-    r"|ip-\d+-\d+-\d+-\d+(?:\.[a-z0-9][a-z0-9-]*)*"
-    # Generic DNS-style: label(.label)+.(tld)
-    r"|[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+\.(?:com|net|org|io|internal|local|cloud)"
-    r")\b"
-    # A DNS-style name that fails at one start fails at every later start in the same
-    # label chain, so the skip consumes the chain. It stops where an ec2-style name
-    # starts; a kind name it passes over is found by _KIND_HOSTNAME_RE.
-    r"|(?:(?!\bip-\d+-\d+-\d+-\d+(?!\w))[-a-z0-9]|\.(?=[a-z0-9]))+)",
+# ec2-style internal hostnames: ip-10-0-1-23.ec2.internal
+# Note: the inner character class excludes '.' so the outer (?:\.LABEL)*
+# has no ambiguity and cannot backtrack exponentially (CodeQL ReDoS).
+_EC2_HOSTNAME = r"ip-\d+-\d+-\d+-\d+(?:\.[a-z0-9][a-z0-9-]*)*"
+# Generic DNS-style: label(.label)+.(tld)
+_DNS_HOSTNAME = (
+    r"[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+\.(?:com|net|org|io|internal|local|cloud)"
+)
+# At a word start: a hostname in group 1, or else the rest of the start's label chain.
+_HOSTNAME_STEP_RE = re.compile(
+    rf"\b(?=[a-z0-9])(?:({_KIND_HOSTNAME}|{_EC2_HOSTNAME}|{_DNS_HOSTNAME})\b"
+    r"|(?:[-a-z0-9]|\.(?=[a-z0-9]))+)",
     re.IGNORECASE,
 )
-_KIND_HOSTNAME_RE = re.compile(rf"\b({_KIND_HOSTNAME})\b", re.IGNORECASE)
+_KIND_OR_EC2_START_RE = re.compile(r"\b(?=kind-[a-z0-9]|ip-\d)", re.IGNORECASE)
+_KIND_OR_EC2_RE = re.compile(rf"({_KIND_HOSTNAME}|{_EC2_HOSTNAME})\b", re.IGNORECASE)
+
+
+class _Detector(Protocol):
+    """A compiled pattern, or an object that finds matches the way one does."""
+
+    @property
+    def groupindex(self) -> Mapping[str, int]:
+        """The named groups of the matches ``finditer`` yields."""
+
+    def finditer(self, text: str, /) -> Iterator[re.Match[str]]:
+        """The non-overlapping matches in ``text``, left to right."""
+
+
+class _HostnameDetector:
+    """The matches of ``\\b(_KIND_HOSTNAME|_EC2_HOSTNAME|_DNS_HOSTNAME)\\b``, found in linear time.
+
+    A DNS-style name that fails at one start fails at every later start in the same
+    label chain, so the rest of that chain is searched for kind and ec2-style names
+    only, never rescanned from each of its word starts.
+    """
+
+    groupindex: Mapping[str, int] = MappingProxyType({})
+
+    def finditer(self, text: str, /) -> Iterator[re.Match[str]]:
+        """The hostnames in ``text``, left to right; group 1 holds each one."""
+        starts = [match.start() for match in _KIND_OR_EC2_START_RE.finditer(text)]
+        index = 0
+        resume: int | None = 0
+        while resume is not None:
+            steps, resume = _HOSTNAME_STEP_RE.finditer(text, resume), None
+            for step in steps:
+                if step.group(1) is not None:
+                    yield step
+                    continue
+                chain_start, chain_end = step.span()
+                floor = chain_start + 1
+                while index < len(starts) and starts[index] < chain_end:
+                    start = starts[index]
+                    index += 1
+                    if start < floor:
+                        continue
+                    match = _KIND_OR_EC2_RE.match(text, start)
+                    if match is not None:
+                        yield match
+                        floor = match.end()
+                if floor > chain_end:
+                    # An ec2-style name can end past the chain: \d matches digits no label holds.
+                    resume = floor
+                    break
+
+
 _ACCOUNT_RE = re.compile(r"\b(\d{12})\b")
 _IP_RE = re.compile(
     r"\b((?:25[0-5]|2[0-4]\d|[01]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d?\d)){3})\b"
@@ -117,12 +171,12 @@ _IP_RE = re.compile(
 _EMAIL_RE = re.compile(r"\b(?:([\w.+-]+@[\w-]+\.[\w.-]+)\b|[\w.+-]+)")
 
 
-_BUILTIN_DETECTORS: dict[IdentifierKind, tuple[re.Pattern[str], ...]] = {
+_BUILTIN_DETECTORS: dict[IdentifierKind, tuple[_Detector, ...]] = {
     IdentifierKind.POD: (_POD_RE,),
     IdentifierKind.NAMESPACE: _NAMESPACE_RES,
     IdentifierKind.CLUSTER: _CLUSTER_RES,
     IdentifierKind.SERVICE_NAME: _SERVICE_NAME_RES,
-    IdentifierKind.HOSTNAME: (_HOSTNAME_RE, _KIND_HOSTNAME_RE),
+    IdentifierKind.HOSTNAME: (_HostnameDetector(),),
     IdentifierKind.ACCOUNT_ID: (_ACCOUNT_RE,),
     IdentifierKind.IP_ADDRESS: (_IP_RE,),
     IdentifierKind.EMAIL: (_EMAIL_RE,),
@@ -175,7 +229,7 @@ def find_identifiers(
 
 
 def _append_matches(
-    pattern: re.Pattern[str],
+    pattern: _Detector,
     text: str,
     kind: str,
     out: list[DetectedIdentifier],
