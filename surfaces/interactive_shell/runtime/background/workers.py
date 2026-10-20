@@ -13,10 +13,10 @@ from core.domain.alerts import inbox as _alert_inbox
 from infrastructure.scheduling.scheduler.background_service import (
     restart_stale_background_service,
 )
+from surfaces.interactive_shell.runtime.background.alert_drain import drain_and_render_incoming
 from surfaces.interactive_shell.runtime.core.state import ReplState, SpinnerState
 from surfaces.interactive_shell.runtime.startup.deferred_work import DeferredJob
 from surfaces.interactive_shell.session import Session
-from surfaces.interactive_shell.ui.alerts import drain_and_render_incoming
 from surfaces.shared.integration_telemetry import capture_github_connection_snapshot
 
 log = logging.getLogger(__name__)

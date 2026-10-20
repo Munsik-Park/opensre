@@ -8,11 +8,8 @@ from rich.console import Console
 
 from core.domain.alerts.inbox import AlertInbox, IncomingAlert
 from surfaces.interactive_shell.runtime import Session
-from surfaces.interactive_shell.ui.alerts import (
-    drain_and_render_incoming,
-    format_incoming_alert,
-    time_ago,
-)
+from surfaces.interactive_shell.runtime.background.alert_drain import drain_and_render_incoming
+from surfaces.interactive_shell.ui.alerts import format_incoming_alert, time_ago
 
 
 class TestTimeAgo:
