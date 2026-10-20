@@ -36,7 +36,15 @@ class DetectedIdentifier:
 # regexes. Contextual detectors capture the VALUE in the ``value`` group so we
 # only mask the identifier itself (not the preceding label like "kube_namespace:").
 
-_POD_RE = re.compile(r"\b([a-z0-9](?:[-a-z0-9]*[a-z0-9])?-[a-f0-9]{5,10}(?:-[a-z0-9]{3,10})?)\b")
+# A masked cut runs every detector over a whole over-budget tool result, so each
+# pattern must stay linear on any input. The pod, hostname and email patterns end in
+# an alternative that captures nothing and consumes the run of identifier characters
+# where the first alternative failed: no later start inside that run can match, so a
+# run is scanned a bounded number of times rather than once from every word start.
+_POD_RE = re.compile(
+    r"\b(?=[a-z0-9])(?:([a-z0-9](?:[-a-z0-9]*[a-z0-9])?-[a-f0-9]{5,10}(?:-[a-z0-9]{3,10})?)\b"
+    r"|[-a-z0-9]+)"
+)
 
 _NAMESPACE_LABELS = r"kube_namespace|namespace|ns"
 _CLUSTER_LABELS = r"kube_cluster|eks_cluster|cluster(?:_name)?"
@@ -85,23 +93,28 @@ _STRUCTURED_KEYS: dict[str, tuple[IdentifierKind, re.Pattern[str]]] = {
         for label in ("service", "service_name", "app", "deployment")
     },
 }
+_KIND_HOSTNAME = r"kind-[a-z0-9][-a-z0-9]*"  # local kind clusters
 _HOSTNAME_RE = re.compile(
-    r"\b("
-    r"kind-[a-z0-9][-a-z0-9]*"  # local kind clusters
+    rf"\b(?=[a-z0-9])(?:({_KIND_HOSTNAME}"
     # ec2-style internal hostnames: ip-10-0-1-23.ec2.internal
     # Note: the inner character class excludes '.' so the outer (?:\.LABEL)*
     # has no ambiguity and cannot backtrack exponentially (CodeQL ReDoS).
     r"|ip-\d+-\d+-\d+-\d+(?:\.[a-z0-9][a-z0-9-]*)*"
     # Generic DNS-style: label(.label)+.(tld)
     r"|[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+\.(?:com|net|org|io|internal|local|cloud)"
-    r")\b",
+    r")\b"
+    # A DNS-style name that fails at one start fails at every later start in the same
+    # label chain, so the skip consumes the chain. It stops where an ec2-style name
+    # starts; a kind name it passes over is found by _KIND_HOSTNAME_RE.
+    r"|(?:(?!\bip-\d+-\d+-\d+-\d+(?!\w))[-a-z0-9]|\.(?=[a-z0-9]))+)",
     re.IGNORECASE,
 )
+_KIND_HOSTNAME_RE = re.compile(rf"\b({_KIND_HOSTNAME})\b", re.IGNORECASE)
 _ACCOUNT_RE = re.compile(r"\b(\d{12})\b")
 _IP_RE = re.compile(
     r"\b((?:25[0-5]|2[0-4]\d|[01]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d?\d)){3})\b"
 )
-_EMAIL_RE = re.compile(r"\b([\w.+-]+@[\w-]+\.[\w.-]+)\b")
+_EMAIL_RE = re.compile(r"\b(?:([\w.+-]+@[\w-]+\.[\w.-]+)\b|[\w.+-]+)")
 
 
 _BUILTIN_DETECTORS: dict[IdentifierKind, tuple[re.Pattern[str], ...]] = {
@@ -109,7 +122,7 @@ _BUILTIN_DETECTORS: dict[IdentifierKind, tuple[re.Pattern[str], ...]] = {
     IdentifierKind.NAMESPACE: _NAMESPACE_RES,
     IdentifierKind.CLUSTER: _CLUSTER_RES,
     IdentifierKind.SERVICE_NAME: _SERVICE_NAME_RES,
-    IdentifierKind.HOSTNAME: (_HOSTNAME_RE,),
+    IdentifierKind.HOSTNAME: (_HOSTNAME_RE, _KIND_HOSTNAME_RE),
     IdentifierKind.ACCOUNT_ID: (_ACCOUNT_RE,),
     IdentifierKind.IP_ADDRESS: (_IP_RE,),
     IdentifierKind.EMAIL: (_EMAIL_RE,),
