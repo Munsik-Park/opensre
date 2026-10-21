@@ -164,7 +164,6 @@ These commands delegate to the same Click CLI you would run outside the REPL.
 | `/login` | Shortcut for `/auth login` (`/login openai`, `/login anthropic`, `/login deepseek`). Signs in an LLM provider, not the OpenSRE account |
 | `/logout` | Sign out of the OpenSRE account and close the shell (same as `/account logout`) |
 | `/onboard` | Interactive onboarding wizard |
-| `/remote` | Connect to and operate remote deployed agents |
 | `/remote-sync` | Manage remote sync to your object store. Subcommands: `status`, `sync`, `setup`. See [Sync to your own object store](/install/remote-sync). |
 | `/config` | Show or edit `~/.opensre/config.yml` |
 | `/cron` | Manage scheduled delivery jobs |
@@ -1058,19 +1057,6 @@ Sign out of the OpenSRE account and close the shell. Same as `/account logout`: 
 ```
 
 Optional local LLM-provider onboarding. The account-hosted route remains authoritative while signed in, so this does not switch the model used by the interactive shell.
-
-</Accordion>
-
-<Accordion title="/remote">
-
-```text
-/remote health
-/remote ops
-/remote pull
-/remote trigger
-```
-
-Operate remote deployed OpenSRE agents (EC2, Nitro, hosted runtime).
 
 </Accordion>
 
