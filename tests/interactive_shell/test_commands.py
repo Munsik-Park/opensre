@@ -25,6 +25,7 @@ from config.constants.conversation_history import (
     OPENSRE_LLM_COMPACTION_ENV,
     OPENSRE_STRUCTURED_HISTORY_ENV,
 )
+from config.constants.repl_autonomy import AutoLevel
 from config.constants.runtime_metadata import OPENSRE_WORKSPACE_REPO_ENV
 from surfaces.interactive_shell.command_registry import SLASH_COMMANDS, dispatch_slash
 from surfaces.interactive_shell.command_registry import repl_data as repl_data_module
@@ -2833,11 +2834,23 @@ class TestCliDelegatedCommands:
 
 
 class TestRetiredRemoteCommand:
-    """``/remote`` is retired: it reports that and starts no child process."""
+    """``/remote`` is retired: it reports that, ungated by ``/auto``, and starts no child process."""
 
-    @pytest.mark.parametrize("args", [[], ["health"]], ids=["bare", "health"])
+    @pytest.mark.parametrize(
+        ("args", "is_tty", "auto_level"),
+        [
+            ([], True, AutoLevel.HIGH),
+            (["health"], True, AutoLevel.HIGH),
+            ([], False, AutoLevel.MED),
+        ],
+        ids=["bare", "health", "non-tty-auto-med"],
+    )
     def test_remote_reports_retirement_without_starting_a_child(
-        self, monkeypatch: pytest.MonkeyPatch, args: list[str]
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        args: list[str],
+        is_tty: bool,
+        auto_level: AutoLevel,
     ) -> None:
         from core.agent_harness.tools.tool_context import ActionToolScope
         from surfaces.interactive_shell.runtime.slash_adapter import repl_slash_ports
@@ -2858,10 +2871,11 @@ class TestRetiredRemoteCommand:
         exits: list[bool] = []
         console, buf = _capture()
         session = Session()
+        session.terminal.auto_level = auto_level
         ctx = ActionToolScope(
             session=session,
             console=console,
-            is_tty=True,
+            is_tty=is_tty,
             request_exit=lambda: exits.append(True),
             slash_ports=repl_slash_ports(),
         )
