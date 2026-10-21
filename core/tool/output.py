@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from config.constants.tool_output import (
@@ -12,6 +14,7 @@ from config.constants.tool_output import (
     TOOL_OUTPUT_HISTORY_DENOMINATOR,
     TOOL_OUTPUT_HISTORY_NUMERATOR,
 )
+from infrastructure.safety.masking import turn_masking_rules
 
 
 def tool_output_token_limit() -> int:
@@ -64,7 +67,18 @@ def truncate_output_text(text: str, max_bytes: int, *, tokens: bool = True) -> s
     return f"{left}…{omitted} {unit} truncated…{right}"
 
 
-def _bound_text_blocks(content: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
+def truncate_output_text_masked(text: str, max_bytes: int) -> str:
+    """``truncate_output_text`` made on ``text`` masked under the active turn, then restored.
+
+    A cut made on the original can split an identifier no detector recognizes;
+    this one can split only a placeholder. Masking off: ``truncate_output_text``.
+    """
+    return turn_masking_rules().cut_masked(text, partial(truncate_output_text, max_bytes=max_bytes))
+
+
+def _bound_text_blocks(
+    content: list[dict[str, Any]], budget: int, cut: Callable[[str, int], str]
+) -> list[dict[str, Any]]:
     """Keep the beginning and end of every text block, and every non-text block.
 
     Later text joins the first text block so a short final diagnostic survives
@@ -76,7 +90,9 @@ def _bound_text_blocks(content: list[dict[str, Any]], budget: int) -> list[dict[
     joined = "\n".join(text_parts)
     if len(joined.encode("utf-8")) <= budget:
         return list(content)
-    truncated = truncate_output_text(joined, budget)
+    truncated = cut(joined, budget)
+    if truncated == joined:
+        return list(content)
     visible: list[dict[str, Any]] = []
     placed = False
     for block in content:
@@ -89,9 +105,15 @@ def _bound_text_blocks(content: list[dict[str, Any]], budget: int) -> list[dict[
     return visible
 
 
-def tool_output_content(content: str | list[dict[str, Any]]) -> str | list[dict[str, Any]]:
-    """Bound text observations without changing retained results or non-text blocks."""
+def tool_output_content(
+    content: str | list[dict[str, Any]],
+    cut: Callable[[str, int], str] = truncate_output_text,
+) -> str | list[dict[str, Any]]:
+    """Bound text observations without changing retained results or non-text blocks.
+
+    ``cut(text, max_bytes)`` makes the cut; it may keep a text whole.
+    """
     budget = tool_output_byte_budget()
     if isinstance(content, str):
-        return truncate_output_text(content, budget)
-    return _bound_text_blocks(content, budget)
+        return cut(content, budget)
+    return _bound_text_blocks(content, budget, cut)

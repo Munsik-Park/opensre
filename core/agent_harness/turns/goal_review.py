@@ -28,8 +28,9 @@ vs metric ``call_*_tool`` can be distinguished).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from config.constants.llm import react_goal_llm_review_enabled
@@ -54,6 +55,9 @@ from core.events import RuntimeEvent, RuntimeEventCallback, ToolExecutionEndEven
 from core.llm.types import AgentLLMClient, ToolCall
 from core.tool.execution import ToolExecutionResult
 from infrastructure.observability.trace.decisions import record_decision
+from infrastructure.safety.masking import turn_masking_rules
+
+log = logging.getLogger(__name__)
 
 # One rejection is enough to catch a stopped-short turn; the follow-up work is
 # then accepted as-is. More reviews only amplify the damage when the reviewer
@@ -322,13 +326,15 @@ class _LLMGoalReviewer:
         if self.reviews_remaining <= 0:
             return self._decision(observation, True, "review_budget_exhausted")
         self.reviews_remaining -= 1
-        # Fail open on transport/parse errors — a broken reviewer must not
-        # force extra ReAct iterations.
-        verdict = invoke_closed_goal_verdict(
-            self.llm,
-            prompt=self._review_message(observation),
-            system=self.system_prompt,
-        )
+        # Fail open on masking/transport/parse errors — a broken reviewer must not
+        # force extra ReAct iterations. A masking failure sends no request.
+        try:
+            prompt = self._review_message(observation)
+        except Exception:
+            log.debug("goal review prompt could not be masked", exc_info=True)
+            verdict = None
+        else:
+            verdict = invoke_closed_goal_verdict(self.llm, prompt=prompt, system=self.system_prompt)
         if verdict is None:
             return self._decision(observation, True, "llm_review_unavailable")
         return self._decision(
@@ -356,7 +362,15 @@ class _LLMGoalReviewer:
         return accepted
 
     def _review_message(self, observation: GoalObservation) -> str:
-        final_text = (observation.final_text or "").strip() or "(empty)"
+        """The review prompt, its content values masked under the turn's mapping before any cut."""
+        outcomes = self.executed_outcomes
+        user_goal, final_text, *details = turn_masking_rules().mask_batch(
+            [
+                self.user_goal,
+                (observation.final_text or "").strip() or "(empty)",
+                *(outcome.details for outcome in outcomes),
+            ]
+        )
         tools_line = _format_executed_calls(self.executed_tool_calls)
         if tools_line == "(none)" and self.executed_tool_names:
             tools_line = ", ".join(self.executed_tool_names)
@@ -365,9 +379,14 @@ class _LLMGoalReviewer:
             metric_note = "\nMetric query executed: " + (
                 "yes" if _gather_ran_metric_query(self.executed_tool_calls) else "no"
             )
-        results_line = format_outcomes_for_review(self.executed_outcomes)
+        results_line = format_outcomes_for_review(
+            [
+                replace(outcome, details=masked)
+                for outcome, masked in zip(outcomes, details, strict=True)
+            ]
+        )
         return (
-            f"User goal: {self.user_goal}\n"
+            f"User goal: {user_goal}\n"
             f"Actions executed this turn: {observation.evidence_count}\n"
             f"Tools executed: {tools_line}"
             f"{metric_note}\n"

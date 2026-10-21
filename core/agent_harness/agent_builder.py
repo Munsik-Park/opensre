@@ -39,6 +39,8 @@ class AgentConfig(Generic[RuntimeToolT]):  # noqa: UP046
     provider_hooks: ProviderHooks | None = None
     on_runtime_event: RuntimeEventCallback | None = None
     goal: Goal | None = None
+    #: OpenSRE-authored texts that reach the provider as written when masking is on.
+    authored_texts: tuple[str, ...] = ()
 
 
 def build_agent(  # noqa: UP047
@@ -61,6 +63,7 @@ def build_agent(  # noqa: UP047
         provider_hooks=config.provider_hooks,
         on_runtime_event=config.on_runtime_event,
         goal=config.goal,
+        authored_texts=config.authored_texts,
     )
 
 

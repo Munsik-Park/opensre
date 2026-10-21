@@ -6,10 +6,11 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import Any, Final
 from urllib.parse import quote
 
-from infrastructure.safety.masking import MaskingPolicy, MaskingRules
+from infrastructure.safety.masking import turn_masking_rules
 from integrations.github.repo_scope import detect_git_remote_repo_scope
 from integrations.github.tools.ci_fix.errors import (
     ERR_INVALID_INPUT,
@@ -475,12 +476,12 @@ def _log_excerpt(raw: str) -> str:
     else:
         interesting = lines[-80:]
     excerpt = "\n".join(interesting).strip()
-    return excerpt[-_MAX_LOG_CHARS:]
+    return turn_masking_rules().cut_masked(excerpt, lambda text: text[-_MAX_LOG_CHARS:])
 
 
 def build_fix_task(ctx: CiFixContext, *, base_merged: bool) -> str:
     """Coding-agent task for the failing checks; ``base_merged`` notes the head now includes the base."""
-    masker = MaskingRules(MaskingPolicy.from_env())
+    masker = turn_masking_rules()
     if ctx.is_branch_target:
         branch = ctx.target_branch or ctx.base_branch or ctx.head_branch
         lines = [
@@ -527,7 +528,7 @@ def build_fix_task(ctx: CiFixContext, *, base_merged: bool) -> str:
             ]
         )
         if check.log_excerpt and log_budget > 0:
-            excerpt = check.log_excerpt[:log_budget]
+            excerpt = masker.cut_masked(check.log_excerpt, partial(_head, size=log_budget))
             log_budget -= len(excerpt)
             lines.extend(["  Log excerpt:", _indent(excerpt, prefix="    ")])
     lines.extend(
@@ -592,6 +593,10 @@ def _normalize_branch(branch: str | None) -> str:
         if cleaned.startswith(prefix):
             return cleaned.removeprefix(prefix).strip()
     return cleaned
+
+
+def _head(value: str, *, size: int) -> str:
+    return value[:size]
 
 
 def _indent(value: str, *, prefix: str) -> str:

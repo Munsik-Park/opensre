@@ -10,6 +10,7 @@ from core.agent_harness.session_goal.goal import SessionGoal
 from core.agent_harness.turns.gather_discovery_budget import is_gather_discovery_call
 from core.llm.types import ToolCall
 from core.tool import ToolExecutionResult
+from infrastructure.safety.masking import turn_masking_rules
 
 _BOOKKEEPING_TOOLS = frozenset({"session_goal_set", "session_goal_complete", "update_plan"})
 _MAX_REVIEW_INPUT_CHARS = 64000
@@ -148,8 +149,13 @@ def _bounded_result(content: Any) -> str:
     A single run listing can be hundreds of kilobytes; without a bound the
     review input overflowed and the judge went unavailable for the turn.
     The tail keeps a final status or summary that would otherwise be dropped.
+    The cut is made on the text masked under the turn's mapping, and the kept
+    text is restored: a cut can split a placeholder, never an identifier.
     """
-    text = str(content)
+    return turn_masking_rules().cut_masked(str(content), _head_and_tail)
+
+
+def _head_and_tail(text: str) -> str:
     if len(text) <= _MAX_RESULT_CHARS:
         return text
     dropped = len(text) - _RESULT_HEAD_CHARS - _RESULT_TAIL_CHARS

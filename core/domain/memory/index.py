@@ -12,11 +12,13 @@ The prompt sees memory twice:
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from functools import partial
 from pathlib import Path
 
 from core.domain.memory.files import INDEX_FILENAME, write_text_atomically
 from core.domain.memory.models import TRUNCATION_MARKER, MemoryRecord, MemoryType
 from core.domain.memory.usage import MemoryUsage
+from infrastructure.safety.masking import turn_masking_rules
 
 _INDEX_HEADER = (
     "# Long-term memory index\n"
@@ -89,8 +91,19 @@ def index_order(
 
 
 def _clip(text: str, limit: int) -> str:
+    """``text`` collapsed and cut to ``limit`` on its masked form, the kept text restored."""
+    return turn_masking_rules().cut_masked(text, partial(_cut, limit=limit))
+
+
+def _cut(text: str, limit: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + _ELLIPSIS
+
+
+def _cut_body(body: str, body_chars: int) -> str:
+    if len(body) <= body_chars:
+        return body
+    return body[: max(body_chars - len(TRUNCATION_MARKER), 0)].rstrip() + TRUNCATION_MARKER
 
 
 def _index_line(record: MemoryRecord) -> str:
@@ -156,9 +169,9 @@ def _relevant_entry(record: MemoryRecord, *, body_chars: int) -> str:
         f"[{record.memory_type}] {record.slug} — {_clip(record.description, 200)} "
         f"(updated {record.updated_at[:10]}{_provenance_note(record)})"
     )
-    body = record.body.strip()
-    if len(body) > body_chars:
-        body = body[: max(body_chars - len(TRUNCATION_MARKER), 0)].rstrip() + TRUNCATION_MARKER
+    body = turn_masking_rules().cut_masked(
+        record.body.strip(), partial(_cut_body, body_chars=body_chars)
+    )
     return f"{header}\n{body}" if body else header
 
 

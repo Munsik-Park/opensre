@@ -23,9 +23,11 @@ import logging
 import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from config.constants.scheduler import WORK_UNVERIFIED_ERROR_KIND
+from infrastructure.safety.masking import turn_masking_rules
 from infrastructure.safety.secret_redaction import redact_text
 from infrastructure.scheduling.scheduler.run_activity import CARRY_NOTE_MAX_CHARS, compact_text
 from infrastructure.scheduling.scheduler.storage.run_record_store import read_run_records
@@ -99,9 +101,14 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
+def _compact(text: str, max_chars: int) -> str:
+    """``compact_text`` made on the masked form of ``text``, the kept text restored."""
+    return turn_masking_rules().cut_masked(text, partial(compact_text, max_chars=max_chars))
+
+
 def _clean(value: Any, max_chars: int) -> str:
     """Redact, then collapse and cut; a non-string is empty."""
-    return compact_text(redact_text(value), max_chars) if isinstance(value, str) else ""
+    return _compact(redact_text(value), max_chars) if isinstance(value, str) else ""
 
 
 def _when(record: Mapping[str, Any]) -> str:
@@ -178,7 +185,7 @@ def _actions(record: Mapping[str, Any], max_chars: int) -> str:
         return ""
     left_out = total - len(shown)
     text = "; ".join(shown)
-    return compact_text(f"(+{left_out} earlier) {text}" if left_out else text, max_chars)
+    return _compact(f"(+{left_out} earlier) {text}" if left_out else text, max_chars)
 
 
 def _entry(record: Mapping[str, Any], max_chars: int) -> str:
@@ -187,7 +194,7 @@ def _entry(record: Mapping[str, Any], max_chars: int) -> str:
     The note the run left on purpose comes first, then what it changed, then
     its report, which absorbs any shortfall.
     """
-    entry = compact_text(_summary_line(record), min(_SUMMARY_LINE_CHARS, max_chars))
+    entry = _compact(_summary_line(record), min(_SUMMARY_LINE_CHARS, max_chars))
     report = record.get("report")
     details = (
         ("note", CARRY_NOTE_MAX_CHARS, lambda room: _clean(record.get("carry_note"), room)),
@@ -224,7 +231,10 @@ def render_previous_runs(records: Sequence[Mapping[str, Any]]) -> str:
         entry = _entry(record, share)
         entries.append(entry)
         remaining -= len(entry) + 1
-    return "\n".join([PREVIOUS_RUNS_HEADER, *reversed(entries)])[:PREVIOUS_RUNS_MAX_CHARS]
+    return turn_masking_rules().cut_masked(
+        "\n".join([PREVIOUS_RUNS_HEADER, *reversed(entries)]),
+        lambda block: block[:PREVIOUS_RUNS_MAX_CHARS],
+    )
 
 
 def previous_runs_block(task_id: str) -> str:

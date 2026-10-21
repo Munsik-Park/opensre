@@ -27,6 +27,7 @@ from config.constants.tool_discovery import (
 from config.llm_models import DEFAULT_MAX_TOKENS
 from core.agent.cancel import tool_resources_cancel_requested
 from core.agent.loop_host import LoopHost
+from core.agent.request_masking import RunMasking
 from core.agent.run_io import AgentRunInput, AgentRunResult
 from core.context_budget import (
     context_budget_ceiling_for_model,
@@ -60,6 +61,7 @@ from core.tool.execution import (
     public_tool_input,
 )
 from core.tool.live_catalog import LiveToolCatalog
+from core.tool.output import truncate_output_text, truncate_output_text_masked
 from infrastructure.observability.operations_log import record_operation
 from infrastructure.observability.trace.decisions import record_decision
 from infrastructure.observability.trace.llm_payloads import (
@@ -81,6 +83,7 @@ from infrastructure.observability.trace.spans import (
     loop_span,
     mark_span_outcome,
 )
+from infrastructure.safety.masking import active_masking_scope
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +234,9 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
         self._max_stagnant_iterations = run_input.max_stagnant_iterations
         self._messages = run_input.messages
         self._msg_formatter = MessageMapper(self._llm)
+        self._authored_texts = run_input.authored_texts
+        # Bound to the active turn's masking scope for the duration of ``run``.
+        self._masking: RunMasking | None = None
         self._live_catalog = LiveToolCatalog[RuntimeToolT].from_resources(self._tool_resources)
         self._catalog_snapshot = self._live_catalog.snapshot() if self._live_catalog else None
         initial_tools = (
@@ -270,6 +276,11 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
 
     def run(self) -> AgentRunResult:
         """Drive the loop to completion and return its outcome."""
+        with active_masking_scope() as scope:
+            self._masking = RunMasking(scope, self._msg_formatter, self._authored_texts)
+            return self._drive()
+
+    def _drive(self) -> AgentRunResult:
         self._host._emit_runtime(
             AgentStartEvent(
                 data={
@@ -422,7 +433,7 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
             )
         )
         response = self._think(iteration)
-        assistant_message = self._msg_formatter.to_assistant_runtime_message(response)
+        assistant_message = self._assistant_message(response)
         self._host._emit_runtime(MessageStartEvent(message=assistant_message, iteration=iteration))
         if response.content:
             # ``has_tool_calls`` lets renderers distinguish intermediate
@@ -451,7 +462,11 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
     ) -> Any:
         """Build the request, apply the provider hooks, and call the LLM."""
         request_tools = self._tool_schemas if tool_schemas is None else tool_schemas
+        masking = self._active_masking()
         transformed_messages = self._host._transform_messages(self._messages)
+        system = self._system
+        if masking is not None:
+            system, transformed_messages = masking.mask_request(system, transformed_messages)
         llm_messages = self._host._convert_to_llm(self._llm, transformed_messages)
         estimated_tokens = enforce_context_budget(
             llm_messages,
@@ -460,7 +475,7 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
         )
         provider_request = ProviderRequest(
             messages=llm_messages,
-            system=self._system,
+            system=system,
             tools=request_tools,
             metadata={"iteration": iteration, "request_kind": request_kind},
         )
@@ -469,7 +484,10 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
             # A provider hook may normally add tools. The safety handoff is the
             # one exception: it must be incapable of starting more work.
             provider_request = replace(provider_request, tools=list(tool_schemas))
-        self._final_system_prompt = provider_request.system or self._system
+        # The recorded prompt stays the unmasked text; only the request copy is masked.
+        self._final_system_prompt = (
+            self._system if masking is not None else provider_request.system or self._system
+        )
         self._host._emit_runtime(
             ProviderRequestStartEvent(
                 iteration=iteration,
@@ -537,6 +555,8 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
             if self._output_tokens is not None and output_tokens is not None
             else None
         )
+        if masking is not None:
+            response = masking.restore_response(response)
         response = self._host._after_response(provider_request, response)
         self._host._emit_runtime(
             ProviderRequestEndEvent(
@@ -554,6 +574,17 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
             )
         )
         return response
+
+    def _active_masking(self) -> RunMasking | None:
+        """The run's masking step when masking is on; raises on an invalid enabled setting."""
+        masking = self._masking
+        return masking if masking is not None and masking.active else None
+
+    def _assistant_message(self, response: Any) -> AssistantRuntimeMessage:
+        masking = self._active_masking()
+        if masking is not None:
+            return masking.assistant_message(response)
+        return self._msg_formatter.to_assistant_runtime_message(response)
 
     def _effective_ceiling(self) -> int:
         """The budget in estimated tokens, corrected by the provider's last count."""
@@ -714,6 +745,7 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
         ) -> None:
             self._emit_tool_update(request, update, event_iteration=event_iteration)
 
+        masking = self._active_masking()
         hooks = ToolExecutionHooks(
             before_tool_call=self._host._tool_hooks.before_tool_call,
             after_tool_call=self._host._tool_hooks.after_tool_call,
@@ -729,8 +761,10 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
             should_stop=self._cancel_requested,
             on_call_start=on_call_start,
             iteration=iteration,
+            restore_result=masking.restore_result if masking is not None else None,
         )
-        provider_results = [result.provider_content() for result in results]
+        cut = truncate_output_text_masked if masking is not None else truncate_output_text
+        provider_results = [result.provider_content(cut) for result in results]
         tool_result_message = self._msg_formatter.to_tool_result_runtime_message(
             response.tool_calls, provider_results
         )
@@ -746,6 +780,8 @@ class ReactLoop[RuntimeToolT: RuntimeTool]:
                 },
             )
         self._messages.append(tool_result_message)
+        if masking is not None:
+            masking.adopt(tool_result_message)
 
         tool_error_count = sum(1 for result in results if result.is_error)
         terminated_tool_count = sum(1 for result in results if result.terminate)

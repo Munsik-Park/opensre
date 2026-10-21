@@ -539,6 +539,29 @@ which owns the actual think → call-tools → observe algorithm.
   `_after_response` forwarders. The concrete `ProviderHookDelegate` type is an
   `Agent` implementation detail, not part of the host contract, so any host can
   wire those four provider hooks however it likes.
+- `core/agent/request_masking.py` — `RunMasking`, the loop's masking step when
+  `OPENSRE_MASK_ENABLED` is on. `ReactLoop._think` masks each request from the
+  turn's originals (system text first, OpenSRE-authored `SYSTEM`/`RULE` block
+  text as written) and restores the response before the hooks, events or tools
+  read it; tool results are restored right after execution. It is an explicit
+  step that propagates errors — never put masking behind `ProviderHooks`, whose
+  failures are swallowed. The mapping is the active turn scope's
+  (`infrastructure.safety.masking.masking_turn_scope`, opened by `run_goal` and
+  the action turn), never state on the shared per-role client. A request site
+  outside the loop masks the content values it composes with
+  `turn_masking_rules()` (the turn's own goal checks; memory extraction, in a
+  scope of its own so its digest's cuts share the request's mapping) or
+  `request_masking_rules()` (compaction, memory consolidation, knowledge scans,
+  daily update) and restores the reply before using or storing it. Text being
+  composed for a request — a site's prompt, a prompt block, the loop's
+  tool-output budget — is masked before it is cut or repr'd: a cut made first
+  can leave part of an identifier that no detector recognizes.
+  `MaskingRules.cut_masked` makes a cut on the masked form and restores the
+  kept text; `core.tool.truncate_output_text_masked` is that cut for the
+  tool-output budget. Where the request's other text is at hand, pass it as
+  `context`, so a value labelled only there is masked in the cut text too (the
+  gateway's attachment cuts see their message through
+  `message_with_attachments`).
 - `core/agent/run_io.py` — `AgentRunInput` (resolved per-run inputs) and
   `AgentRunResult` (the loop's outcome). `core.agent` re-exports `AgentRunResult`
   for the `from core.agent import AgentRunResult` path.

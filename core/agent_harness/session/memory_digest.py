@@ -36,6 +36,7 @@ from core.agent_harness.session.persistence.contracts import CARRIED_MESSAGE_MET
 from core.agent_harness.session.persistence.paths import session_path
 from core.domain.memory import EvidenceCorpus, redact_memory_unsafe_text
 from core.state.transcript_window import is_summary_message
+from infrastructure.safety.masking import turn_masking_rules
 
 MAX_DIGEST_CHARS = 60_000
 MAX_TOOL_RESULT_CHARS = 1_500
@@ -92,10 +93,15 @@ class SessionDigest:
 
 
 def _clip(text: str, limit: int) -> str:
-    text = text.strip()
-    if len(text) <= limit:
-        return text
-    return text[: max(limit - 1, 0)].rstrip() + _ELLIPSIS if limit > 0 else ""
+    """``text`` stripped and cut to ``limit``, the cut made on its masked form."""
+
+    def _cut(value: str) -> str:
+        value = value.strip()
+        if len(value) <= limit:
+            return value
+        return value[: max(limit - 1, 0)].rstrip() + _ELLIPSIS if limit > 0 else ""
+
+    return turn_masking_rules().cut_masked(text, _cut)
 
 
 def _safe(text: str, limit: int, *, flat: bool = False) -> str:

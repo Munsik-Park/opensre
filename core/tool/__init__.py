@@ -26,6 +26,7 @@ from core.tool.output import (
     history_replay_byte_budget,
     tool_output_byte_budget,
     truncate_output_text,
+    truncate_output_text_masked,
 )
 from core.tool.registry import ToolRegistry, normalize_surfaces
 
@@ -53,4 +54,5 @@ __all__ = [
     "report_run_error",
     "tool_output_byte_budget",
     "truncate_output_text",
+    "truncate_output_text_masked",
 ]

@@ -12,7 +12,7 @@ from http import HTTPStatus
 
 import httpx
 
-from infrastructure.safety.masking import MaskingPolicy, MaskingRules
+from infrastructure.safety.masking import turn_masking_rules
 from integrations.sentry import SentryConfig, get_sentry_issue, sentry_config_from_env
 from integrations.sentry.issue_url import parse_sentry_issue_url
 from tools.cross_vendor.fix_sentry_issue.errors import (
@@ -46,13 +46,14 @@ def _resolve_config() -> SentryConfig:
 
 def _build_task(issue: dict) -> str:
     """Compact a Sentry issue dict into a short, masked coding task for Pi."""
-    masker = MaskingRules(MaskingPolicy.from_env())
+    masker = turn_masking_rules()
 
     def field(value: object, *, limit: int | None = None) -> str:
-        text = str(value or "").strip()
+        # Masked before the cut, so the cut never splits an identifier.
+        text = masker.mask(str(value or "").strip())
         if limit:
             text = text[:limit]
-        return masker.mask(text)
+        return text
 
     raw_meta = issue.get("metadata")
     meta = raw_meta if isinstance(raw_meta, dict) else {}

@@ -46,6 +46,7 @@ from core.domain.knowledge import (
 )
 from core.domain.memory import MAX_BODY_CHARS, MemoryType, redact_memory_unsafe_text
 from core.llm.shared.structured_output import extract_json_payload
+from infrastructure.safety.masking import request_masking_rules
 from infrastructure.text.truncation import clip_line
 from integrations.slack.web_client import (
     SlackBotTarget,
@@ -254,7 +255,7 @@ def sample_messages(
             logger.debug("[knowledge] skipped #%s: %s", channel.name, error)
             continue
         texts = [
-            redact_memory_unsafe_text(" ".join(message["text"].split()))[:_SAMPLE_TEXT_CHARS]
+            redact_memory_unsafe_text(" ".join(message["text"].split()))
             for message in messages
             if _HUMAN_USER_RE.match(message.get("user", "")) and message.get("text", "").strip()
         ]
@@ -284,20 +285,28 @@ def summarize_workspace(
         f"#{c.name} ({c.members} members) topic: {c.topic or '-'} purpose: {c.purpose or '-'}"
         for c in view.channels[:MAX_MAPPED_CHANNELS]
     )
-    sample_lines = "\n".join(
-        f"#{name}:\n" + "\n".join(f"- {text}" for text in texts) for name, texts in samples.items()
-    )
-    # Fields are redacted as they are read; redact the assembled prompt too, so
-    # nothing Slack-authored reaches the model unredacted whatever its source.
-    prompt = redact_memory_unsafe_text(
-        _OVERVIEW_PROMPT.format(
-            workspace=f"{view.name} ({view.url or 'no url'}), {len(view.people)} members",
-            channels=channel_lines or "(none visible)",
-            samples=sample_lines or "(none read)",
-        )
-    )
     try:
-        reply = summarize(prompt)
+        rules = request_masking_rules()
+        workspace, channels, masked_samples = rules.mask_batch(
+            [
+                f"{view.name} ({view.url or 'no url'}), {len(view.people)} members",
+                channel_lines or "(none visible)",
+                tuple((f"#{name}:", tuple(texts)) for name, texts in samples.items()),
+            ]
+        )
+        # Samples are clipped after masking, so a clip never splits an identifier.
+        sample_lines = "\n".join(
+            header + "\n" + "\n".join(f"- {text[:_SAMPLE_TEXT_CHARS]}" for text in texts)
+            for header, texts in masked_samples
+        )
+        # Fields are redacted as they are read; redact the assembled prompt too, so
+        # nothing Slack-authored reaches the model unredacted whatever its source.
+        prompt = redact_memory_unsafe_text(
+            _OVERVIEW_PROMPT.format(
+                workspace=workspace, channels=channels, samples=sample_lines or "(none read)"
+            )
+        )
+        reply = rules.unmask(summarize(prompt))
     except Exception as exc:  # noqa: BLE001 - a provider failure keeps the last summary
         logger.warning("[knowledge] slack overview failed (%s)", type(exc).__name__)
         return None

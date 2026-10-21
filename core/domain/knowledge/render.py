@@ -14,7 +14,7 @@ Two views, mirroring personal memory:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 
 from core.domain.knowledge.settings import knowledge_available_here
@@ -23,6 +23,7 @@ from core.domain.memory import MemoryRecord, MemoryType, select_relevant_memorie
 from core.domain.memory.index import render_index_lines, render_relevant_entries
 from core.domain.memory.recall import live_memories
 from core.domain.memory.store import memory_dir_signature
+from infrastructure.safety.masking import turn_masking_rules
 
 #: Budget for the organization entry inlined in the cached block.
 _ORGANIZATION_INLINE_CHARS = 2_000
@@ -34,6 +35,11 @@ _ELLIPSIS = "\n…[truncated; memory_recall name=organization for the rest]"
 
 
 def _clip_body(body: str, limit: int) -> str:
+    """``body`` cut to ``limit`` on its masked form, the kept text restored."""
+    return turn_masking_rules().cut_masked(body, partial(_cut_body, limit=limit))
+
+
+def _cut_body(body: str, limit: int) -> str:
     text = body.strip()
     if len(text) <= limit:
         return text

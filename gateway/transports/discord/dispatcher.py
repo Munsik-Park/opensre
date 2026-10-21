@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from contextlib import suppress
+from functools import partial
 
 from config.constants.gateway import (
     CREDITS_DENIED_MESSAGE,
@@ -18,6 +19,7 @@ from config.constants.gateway import (
 from config.principal import StorageScope
 from config.scope_context import bound_storage_scope
 from core.agent_harness import SessionCore
+from gateway.core.attachments.inline import message_with_attachments
 from gateway.core.billing.turn_metering import bound_turn_metering
 from gateway.core.middleware.active_turns import ActiveTurnRegistry, is_stop_command
 from gateway.core.middleware.approvals import ApprovalBroker, approval_tool_hooks
@@ -303,12 +305,14 @@ class DiscordTurnDispatcher:
                             build_discord_attachments_context,
                         )
 
-                        ctx = build_discord_attachments_context(
-                            inbound.attachments,
-                            bot_token=self._bot_token,
+                        agent_text = message_with_attachments(
+                            agent_text,
+                            partial(
+                                build_discord_attachments_context,
+                                inbound.attachments,
+                                bot_token=self._bot_token,
+                            ),
                         )
-                        if ctx:
-                            agent_text = f"{agent_text}\n\n{ctx}"
                     with (
                         self._active_cancels.track(
                             inbound.conversation_key,

@@ -53,6 +53,7 @@ class Agent[RuntimeToolT: RuntimeTool](EventEmitterMixin, ToolFilterMixin, Steer
         tool_resources: dict[str, Any] | None = None,
         provider_hooks: ProviderHooks | None = None,
         goal: Goal | None = None,
+        authored_texts: Sequence[str] = (),
     ) -> None:
         if llm is None:
             raise ValueError("Agent: llm= must be set at construction.")
@@ -72,6 +73,7 @@ class Agent[RuntimeToolT: RuntimeTool](EventEmitterMixin, ToolFilterMixin, Steer
         self._tool_resources = dict(tool_resources or {})
         self._hooks = ProviderHookDelegate(provider_hooks or ProviderHooks())
         self._goal = goal
+        self._authored_texts = tuple(authored_texts)
         self._steering_messages: deque[str] = deque()
         self._follow_up_messages: deque[str] = deque()
         self._react_iterations_used = 0
@@ -120,7 +122,9 @@ class Agent[RuntimeToolT: RuntimeTool](EventEmitterMixin, ToolFilterMixin, Steer
         """
         if runtime_request is not None:
             runtime_request.validate_runtime_request()
-            return AgentRunInput[RuntimeToolT].from_runtime_request(runtime_request, llm=self._llm)
+            return AgentRunInput[RuntimeToolT].from_runtime_request(
+                runtime_request, llm=self._llm, authored_texts=self._authored_texts
+            )
         if initial_messages is not None:
             if self._system is None:
                 raise ValueError("Agent.run: system= must be set at construction.")
@@ -135,6 +139,7 @@ class Agent[RuntimeToolT: RuntimeTool](EventEmitterMixin, ToolFilterMixin, Steer
                 tool_resources=self._tool_resources,
                 max_iterations=self._max_iterations,
                 max_stagnant_iterations=self._max_stagnant_iterations,
+                authored_texts=self._authored_texts,
             )
         raise ValueError("Agent.run requires initial_messages or runtime_request.")
 

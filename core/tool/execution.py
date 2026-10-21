@@ -24,7 +24,7 @@ from config.constants.tooling import ToolBlockedBy, ToolSkippedBy
 from core.domain.types.tools import ToolRole
 from core.llm.types import ToolCall
 from core.tool.contracts import AgentTool, AgentToolContext, RuntimeTool
-from core.tool.output import tool_output_content
+from core.tool.output import tool_output_content, truncate_output_text
 from infrastructure.observability.errors.boundary import report_exception
 from infrastructure.observability.errors.service import is_service_unreachable
 from infrastructure.observability.trace.observations import (
@@ -131,15 +131,22 @@ class ToolExecutionResult:
     #: An owning tool applied the body budget and retained its status outside it.
     provider_output_bounded: bool = False
 
-    def provider_content(self) -> str | list[dict[str, Any]]:
-        """Return the content that should be sent back to the LLM provider."""
+    def provider_content(
+        self, cut: Callable[[str, int], str] = truncate_output_text
+    ) -> str | list[dict[str, Any]]:
+        """Return the content that should be sent back to the LLM provider.
+
+        ``cut`` bounds text the tool did not bound itself (see ``tool_output_content``).
+        """
         if (
             self.is_error
             and isinstance(self.details, dict)
             and self.details.get(TOOL_FAILURE_STATE_KEY) in TOOL_FAILURE_STATES
         ):
-            return tool_output_content(json.dumps(self.details, default=str))
-        return self.content if self.provider_output_bounded else tool_output_content(self.content)
+            return tool_output_content(json.dumps(self.details, default=str), cut)
+        if self.provider_output_bounded:
+            return self.content
+        return tool_output_content(self.content, cut)
 
     @property
     def model_only(self) -> bool:
@@ -281,6 +288,7 @@ def execute_tool_calls(
     should_stop: Callable[[], bool] | None = None,
     on_call_start: Callable[[ToolCall], None] | None = None,
     iteration: int | None = None,
+    restore_result: Callable[[ToolExecutionResult], ToolExecutionResult] | None = None,
 ) -> list[ToolExecutionResult]:
     """Execute provider-requested tools sequentially and return structured results.
 
@@ -301,6 +309,9 @@ def execute_tool_calls(
 
     ``iteration`` is the loop iteration that requested the calls; analytics
     records it beside each call's position in the response.
+
+    ``restore_result`` rewrites each executed call's result before its
+    ``after_tool_call`` hook and every later reader see it.
     """
 
     hooks = hooks or ToolExecutionHooks()
@@ -372,6 +383,7 @@ def execute_tool_calls(
                 runtime_resources=runtime_resources,
                 hooks=hooks,
                 span_attrs=span_attrs,
+                restore_result=restore_result,
             )
             _trace_error_message(span_attrs, result)
             observation.update(
@@ -661,6 +673,7 @@ def _execute_one_tool_call(
     runtime_resources: dict[str, Any],
     hooks: ToolExecutionHooks,
     span_attrs: dict[str, Any],
+    restore_result: Callable[[ToolExecutionResult], ToolExecutionResult] | None = None,
 ) -> ToolExecutionResult:
     """Run one validated tool call; record outcome on ``span_attrs``."""
     tool = tool_map.get(tc.name)
@@ -715,6 +728,8 @@ def _execute_one_tool_call(
             hooks=hooks,
         )
         result = _normalize_result(raw, tool_name=tc.name)
+        if restore_result is not None:
+            result = restore_result(result)
         patch = _run_after_hook(hooks, request, result)
         if patch is not None:
             result = _apply_patch(result, patch)
