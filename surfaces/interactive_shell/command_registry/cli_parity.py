@@ -40,6 +40,7 @@ from tools.interactive_shell.subprocess import (
 _UPDATE_SUBPROCESS_TIMEOUT_SECONDS = 300
 _HEADLESS_CLI_SUBPROCESS_TIMEOUT_SECONDS = 90.0
 _STILL_RUNNING_OUTCOME = "still_running"
+_RETIRED_COMMAND_OUTCOME = "retired_command"
 _KEPT_CLI_COMMANDS: list[threading.Thread] = []
 _KEPT_CLI_LOCK = threading.Lock()
 
@@ -467,8 +468,19 @@ def _cmd_logout(session: Session, console: Console, args: list[str]) -> bool:  #
 
 
 def _cmd_remote(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
-    # Remote-sync configuration prompts on the real TTY (click.prompt).
-    return run_cli_command(console, ["remote", *args], capture_output=False, session=session)
+    message = (
+        "/remote is retired: the remote deployed-agent commands "
+        "(health, ops, pull, trigger) are no longer available."
+    )
+    console.print()
+    console.print(message)
+    session.complete_latest_record(
+        "slash",
+        ok=False,
+        response_text=message,
+        slash_outcome=_RETIRED_COMMAND_OUTCOME,
+    )
+    return True
 
 
 def _cmd_guardrails(session: Session, console: Console, args: list[str]) -> bool:
@@ -586,14 +598,10 @@ COMMANDS: list[SlashCommand] = [
     ),
     SlashCommand(
         "/remote",
-        "Connect to and trigger a remote deployed agent.",
+        "Retired: the remote deployed-agent commands are no longer available.",
         _cmd_remote,
-        usage=(
-            "/remote health",
-            "/remote ops",
-            "/remote pull",
-            "/remote trigger",
-        ),
+        # Only prints the retirement notice; there is nothing to confirm.
+        mutating=False,
     ),
     SlashCommand(
         "/guardrails",

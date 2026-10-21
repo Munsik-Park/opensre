@@ -293,7 +293,7 @@ MCP_BY_COMMAND: dict[str, _SlashMcpFields] = {
     "/mcp": _mcp(
         "Manage connected MCP servers. Subcommands: list, connect, disconnect.",
         "User asks to list, connect, or disconnect MCP servers",
-        anti_examples=("User asks about remote deployments or remote agents (use /remote)",),
+        anti_examples=("User asks about remote deployments or remote agents",),
     ),
     "/memory": _mcp(
         "List and manage the agent's long-term memory. "
@@ -344,12 +344,9 @@ MCP_BY_COMMAND: dict[str, _SlashMcpFields] = {
         "User asks to quit the REPL",
     ),
     "/remote": _mcp(
-        "Connect to, list, and operate remote deployed OpenSRE agents. "
-        "Subcommands: health, ops, pull, trigger.",
-        "User explicitly asks to connect to a remote/hosted/EC2/Nitro OpenSRE instance",
-        "User asks how many remote deployments are configured or wants to inspect a remote agent",
-        "User asks about remote deployment status, health, or operations",
-        anti_examples=("Vague connect to X without remote/hosted context (clarify the target)",),
+        "Retired. The remote deployed-agent commands (health, ops, pull, trigger) are "
+        "no longer available; running /remote only reports that.",
+        "User explicitly types /remote or asks to run /remote",
     ),
     "/rename": _mcp(
         "Rename the current session with /rename <name>; "
@@ -614,8 +611,8 @@ def slash_invoke_tool_description(specs: list[SlashCommandSpec] | None = None) -
         "only the slash-command clause of a request. For compound requests, "
         "still emit a separate tool call for every other actionable clause in "
         "order; for example "
-        "`run /remote and then send a summary to Slack` requires "
-        'slash_invoke(command="/remote", args=[]) followed by the '
+        "`run /status and then send a summary to Slack` requires "
+        'slash_invoke(command="/status", args=[]) followed by the '
         "Slack send-message tool call."
     )
     # Keep planner payload intentionally tiny for live LLM runs with strict

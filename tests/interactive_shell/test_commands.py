@@ -2466,9 +2466,9 @@ class TestRunCliCommand:
 
         monkeypatch.setattr(m.subprocess, "run", _fake_run)
         session = SessionCore(store=InMemorySessionStore())
-        session.record("slash", "/remote health", ok=True)
+        session.record("slash", "/guardrails audit", ok=True)
         console, _buf = _capture()
-        assert m.run_cli_command(console, ["remote", "health"], session=session) is False
+        assert m.run_cli_command(console, ["guardrails", "audit"], session=session) is False
         assert session.history[-1]["ok"] is False
 
     @pytest.mark.parametrize("headless", [False, True])
@@ -2678,7 +2678,6 @@ class TestCliDelegatedCommands:
         [
             ("/config show", ["config", "show"]),
             ("/runbooks list", ["runbooks", "list"]),
-            ("/remote health", ["remote", "health"]),
             ("/guardrails audit", ["guardrails", "audit"]),
             ("/update", ["update"]),
             ("/uninstall", ["uninstall"]),
@@ -2834,7 +2833,7 @@ class TestCliDelegatedCommands:
 
 
 class TestRetiredRemoteCommand:
-    """``/remote`` is retired: it explains that instead of delegating to the CLI."""
+    """``/remote`` is retired: it reports that and starts no child process."""
 
     @pytest.mark.parametrize("args", [[], ["health"]], ids=["bare", "health"])
     def test_remote_reports_retirement_without_starting_a_child(
