@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -2830,6 +2831,60 @@ class TestCliDelegatedCommands:
 
         assert m._cmd_setup(session, console, ["--dev"]) is True
         assert "uv run opensre setup --dev" in buf.getvalue()
+
+
+class TestRetiredRemoteCommand:
+    """``/remote`` is retired: it explains that instead of delegating to the CLI."""
+
+    @pytest.mark.parametrize("args", [[], ["health"]], ids=["bare", "health"])
+    def test_remote_reports_retirement_without_starting_a_child(
+        self, monkeypatch: pytest.MonkeyPatch, args: list[str]
+    ) -> None:
+        from core.agent_harness.tools.tool_context import ActionToolScope
+        from surfaces.interactive_shell.runtime.slash_adapter import repl_slash_ports
+        from tools.interactive_shell.actions.slash import execute_slash_tool
+
+        spawned: list[object] = []
+
+        def _record_run(cmd: object, *_args: object, **_kwargs: object) -> object:
+            spawned.append(cmd)
+            return subprocess.CompletedProcess(cmd, 2)
+
+        def _record_popen(cmd: object, *_args: object, **_kwargs: object) -> object:
+            spawned.append(cmd)
+            raise OSError("child processes are blocked in this test")
+
+        monkeypatch.setattr(subprocess, "run", _record_run)
+        monkeypatch.setattr(subprocess, "Popen", _record_popen)
+        exits: list[bool] = []
+        console, buf = _capture()
+        session = Session()
+        ctx = ActionToolScope(
+            session=session,
+            console=console,
+            is_tty=True,
+            request_exit=lambda: exits.append(True),
+            slash_ports=repl_slash_ports(),
+        )
+
+        result = execute_slash_tool({"command": "/remote", "args": args}, ctx)
+
+        assert spawned == [], "/remote must not start a CLI child process"
+        assert exits == [], "/remote must keep the shell running"
+        row = [entry for entry in session.history if entry.get("type") == "slash"][-1]
+        assert row["ok"] is False, "the slash history row must record /remote as not succeeded"
+        assert isinstance(result, dict) and result["ok"] is False, result
+        surfaces = {
+            "console": buf.getvalue(),
+            "slash row": str(row.get("response_text") or ""),
+            "observation": str(result.get("error") or ""),
+        }
+        for surface, text in surfaces.items():
+            lowered = text.lower()
+            assert "no longer available" in lowered, f"{surface} lacks the guidance: {text!r}"
+            for retired in ("health", "ops", "pull", "trigger"):
+                assert re.search(rf"\b{retired}\b", lowered), f"{surface} omits {retired}"
+            assert "remote-sync" not in lowered, f"{surface} points to /remote-sync: {text!r}"
 
 
 def test_alerts_inactive_prints_enable_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
