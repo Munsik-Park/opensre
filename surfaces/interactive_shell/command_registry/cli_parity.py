@@ -600,7 +600,7 @@ COMMANDS: list[SlashCommand] = [
         "/remote",
         "Retired: the remote deployed-agent commands are no longer available.",
         _cmd_remote,
-        # Only prints the retirement notice; there is nothing to confirm.
+        # Holds only while the handler has no effect beyond printing its notice.
         mutating=False,
     ),
     SlashCommand(
