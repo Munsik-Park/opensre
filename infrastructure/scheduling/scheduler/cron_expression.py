@@ -150,12 +150,12 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
     return False
 
 
-#: Minute and hour are 0, so a field's next value from here is the earliest it matches.
+#: Minute and hour are 0, so a minute or hour field's next value from here is its earliest match.
 _START_OF_DAY = datetime(2000, 1, 1)
 
 
 def _earliest_field_value(trigger: Any, field_name: str) -> str:
-    """The earliest value ``trigger``'s ``field_name`` field matches, as cron text."""
+    """The earliest value ``trigger``'s minute or hour ``field_name`` matches, as cron text."""
     field = next(candidate for candidate in trigger.fields if candidate.name == field_name)
     return str(field.get_next_value(_START_OF_DAY))
 
