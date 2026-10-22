@@ -16,8 +16,7 @@ from __future__ import annotations
 from infrastructure.scheduling.scheduler import delivery
 from infrastructure.scheduling.scheduler.types import Provider
 
-#: What the installed delivery bundle has an adapter for: every member. A member
-#: without one fails its tasks with "Unsupported provider" at every fire.
+#: What the installed delivery bundle has an adapter for: every member.
 EXECUTOR_DELIVERS = frozenset(Provider)
 
 #: What ``delivery._DELIVERY_SPECS`` knows how to check readiness and print

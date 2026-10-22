@@ -14,8 +14,7 @@ from integrations.buzz.delivery import post_buzz_message
 class BuzzScheduledDelivery:
     """Deliver a scheduled task's message to its Buzz channel via the ``buzz`` CLI.
 
-    Buzz renders Markdown, so the message is posted as written, cut to the shared
-    messaging limit, as a new top-level message (no reply_to). A relay URL, channel,
+    Buzz renders Markdown, so the message gets no HTML transform. A relay URL, channel,
     message or credential the CLI cannot be handed returns a failure, never raises.
     """
 
