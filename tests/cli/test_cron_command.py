@@ -29,7 +29,6 @@ def _isolate_runtime_flags(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cron_add_offers_exactly_the_providers_scheduled_delivery_reaches() -> None:
-    """A provider offered without a delivery adapter stores a schedule that fails every fire."""
     deliverable = {p.value for p in scheduled_delivery_adapters().providers()}
     option_by_surface = {
         "opensre cron add": next(p for p in cron_module.cron_add.params if p.name == "provider"),
