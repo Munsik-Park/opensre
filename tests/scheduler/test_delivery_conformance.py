@@ -1,7 +1,7 @@
 """Which providers each delivery consumer actually supports, stated once.
 
-``Provider`` offers every member to every caller, and no caller supports them
-all. Each consumer picks a subset, and until now those subsets lived in prose:
+``Provider`` offers every member to every caller, and not every caller supports
+them all. Each consumer picks a subset, and until now those subsets lived in prose:
 the enum docstring says consumers "define their own documented subset rather
 than exposing a choice that would silently fail".
 
@@ -16,18 +16,9 @@ from __future__ import annotations
 from infrastructure.scheduling.scheduler import delivery
 from infrastructure.scheduling.scheduler.types import Provider
 
-#: What the installed delivery bundle has an adapter for. Anything else resolves
-#: to no adapter and fails the task with "Unsupported provider".
-EXECUTOR_DELIVERS = frozenset(
-    {
-        Provider.TELEGRAM,
-        Provider.SLACK,
-        Provider.DISCORD,
-        Provider.ROCKETCHAT,
-        Provider.EMAIL,
-        Provider.INTERACTIVE_SHELL,
-    }
-)
+#: What the installed delivery bundle has an adapter for: every member. A member
+#: without one fails its tasks with "Unsupported provider" at every fire.
+EXECUTOR_DELIVERS = frozenset(Provider)
 
 #: What ``delivery._DELIVERY_SPECS`` knows how to check readiness and print
 #: setup hints for. Narrower than what the executor can send to.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -40,6 +41,73 @@ def test_cron_add_offers_exactly_the_providers_scheduled_delivery_reaches() -> N
         assert set(option.type.choices) == deliverable, (
             f"{surface} --provider must offer exactly the providers scheduled delivery reaches"
         )
+
+
+_CRON_ADD_WITHOUT_A_BUNDLED_PROVIDER = """
+import json, sys
+import bootstrap.adapters as adapters
+from infrastructure.scheduling.scheduler.delivery_bundle import ScheduledDeliveryAdapters
+from infrastructure.scheduling.scheduler.types import Provider
+
+missing = Provider(sys.argv[1])
+assembled = adapters.scheduled_delivery_adapters()
+
+
+def _bundle_without_missing():
+    return ScheduledDeliveryAdapters(
+        {p: a for p, a in assembled.adapters.items() if p is not missing}
+    )
+
+
+adapters.scheduled_delivery_adapters = _bundle_without_missing
+
+from click.testing import CliRunner
+import surfaces.cli.commands.cron as cron_module
+from infrastructure.scheduling.scheduler.storage.task_store import list_tasks
+from surfaces.interactive_shell.ui.cron_input.arguments import cron_options
+
+result = CliRunner().invoke(
+    cron_module.cron_command,
+    ["add", "--kind", "manual_loop", "--cron", "0 9 * * *", "--provider", missing.value,
+     "--chat-id", "C1", "--prompt", "Daily check"],
+)
+cli_option = next(p for p in cron_module.cron_add.params if p.name == "provider")
+print(json.dumps({
+    "bundle": sorted(p.value for p in adapters.scheduled_delivery_adapters().providers()),
+    "offered": {
+        "opensre cron add": sorted(cli_option.type.choices),
+        "/cron add": sorted(cron_options()["provider"].type.choices),
+    },
+    "exit_code": result.exit_code,
+    "output": result.output,
+    "stored": [task.provider.value for task in list_tasks()],
+}))
+"""
+
+
+def test_cron_add_refuses_a_provider_the_delivery_bundle_lacks(tmp_path: Path) -> None:
+    missing = Provider.TELEGRAM
+    child = subprocess.run(
+        [sys.executable, "-c", _CRON_ADD_WITHOUT_A_BUNDLED_PROVIDER, missing.value],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        env={**os.environ, "OPENSRE_HOME": str(tmp_path)},
+    )
+    assert child.returncode == 0, child.stderr
+    observed = json.loads(child.stdout.strip().splitlines()[-1])
+
+    assert missing.value not in observed["bundle"]
+    for surface, offered in observed["offered"].items():
+        assert offered == observed["bundle"], (
+            f"{surface} --provider must offer only what the delivery bundle reaches"
+        )
+    assert observed["exit_code"] != 0
+    assert "--provider" in observed["output"]
+    assert f"'{missing.value}'" in observed["output"]
+    assert observed["stored"] == [], "a refused provider must not store a task"
+    assert not (tmp_path / "scheduler_tasks.json").exists()
 
 
 @pytest.mark.parametrize("global_json", [False, True])
