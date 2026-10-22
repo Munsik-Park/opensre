@@ -1,7 +1,7 @@
 """Which providers each delivery consumer actually supports, stated once.
 
-``Provider`` offers six members to every caller, and no caller supports all
-six. Each consumer picks a subset, and until now those subsets lived in prose:
+``Provider`` offers every member to every caller, and not every caller supports
+them all. Each consumer picks a subset, and until now those subsets lived in prose:
 the enum docstring says consumers "define their own documented subset rather
 than exposing a choice that would silently fail".
 
@@ -16,21 +16,8 @@ from __future__ import annotations
 from infrastructure.scheduling.scheduler import delivery
 from infrastructure.scheduling.scheduler.types import Provider
 
-#: Every member the vocabulary offers a caller.
-ALL_PROVIDERS = frozenset(Provider)
-
-#: What the installed delivery bundle has an adapter for. Anything else resolves
-#: to no adapter and fails the task with "Unsupported provider".
-EXECUTOR_DELIVERS = frozenset(
-    {
-        Provider.TELEGRAM,
-        Provider.SLACK,
-        Provider.DISCORD,
-        Provider.ROCKETCHAT,
-        Provider.EMAIL,
-        Provider.INTERACTIVE_SHELL,
-    }
-)
+#: What the installed delivery bundle has an adapter for.
+EXECUTOR_DELIVERS = frozenset(Provider)
 
 #: What ``delivery._DELIVERY_SPECS`` knows how to check readiness and print
 #: setup hints for. Narrower than what the executor can send to.
@@ -46,19 +33,6 @@ def test_the_executor_delivers_to_exactly_these_providers() -> None:
 
     # Assert
     assert reachable == EXECUTOR_DELIVERS
-
-
-def test_buzz_is_offered_by_the_vocabulary_and_refused_by_the_executor() -> None:
-    """A scheduled task set to ``buzz`` fails at delivery, not at creation.
-
-    Cron delivery does not support ``Provider.BUZZ``, so the enum offers a
-    cron task a choice its executor will refuse
-    with "Unsupported provider". Pinned so the gap stays visible; delete this
-    test when the executor grows a buzz branch or the vocabularies split.
-    """
-    # Assert
-    assert Provider.BUZZ in ALL_PROVIDERS
-    assert Provider.BUZZ not in EXECUTOR_DELIVERS
 
 
 def test_the_spec_list_is_narrower_than_what_the_executor_can_send_to() -> None:

@@ -100,6 +100,15 @@ BUZZ_PATH=buzz
 | --- | --- |
 | `buzz_send_message` | Post a message to the configured (or explicit) Buzz channel |
 
+### Scheduled deliveries (cron)
+
+```bash
+opensre cron add --kind manual_loop --cron "0 9 * * mon-fri" \
+  --provider buzz --chat-id <channel-uuid> --prompt "Summarize open incidents"
+```
+
+`--chat-id` is required: a schedule posts to that channel, not to `BUZZ_DEFAULT_CHANNEL`. The process that runs the scheduler needs the `buzz` CLI and the private key; without the CLI, every run fails with `buzz executable not found`. See [Cron](/platform/cron).
+
 ## Verify
 <Note>
 **Verify does not test two-way chat.** It confirms the relay accepts your key; it does not start a listening process. If you `@mention` the agent at this point, nothing will answer. Complete Step 4 for that.

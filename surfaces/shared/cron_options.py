@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from bootstrap.adapters import scheduled_delivery_adapters
 from core.agent_harness import loop_template_names
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_MODES
 from infrastructure.scheduling.scheduler.types import Provider, TaskKind
@@ -19,7 +20,12 @@ _CRON_ADD_SUPPORTED_KINDS: tuple[TaskKind, ...] = tuple(
     if kind not in (TaskKind.SENTRY_MORNING_DIGEST, TaskKind.SENTRY_UPTIME_WATCH)
 )
 _KIND_CHOICES = [k.value for k in _CRON_ADD_SUPPORTED_KINDS]
-_PROVIDER_CHOICES = [p.value for p in Provider]
+
+
+def _deliverable_provider_choices() -> list[str]:
+    """Return the providers the scheduled-delivery bundle delivers to, in ``Provider`` order."""
+    deliverable = scheduled_delivery_adapters().providers()
+    return [p.value for p in Provider if p in deliverable]
 
 
 def _reject_generic_work_item_reminder(
@@ -75,7 +81,7 @@ def cron_add_parameters() -> list[click.Parameter]:
         ),
         click.Option(
             ["--provider"],
-            type=click.Choice(_PROVIDER_CHOICES, case_sensitive=False),
+            type=click.Choice(_deliverable_provider_choices(), case_sensitive=False),
             required=True,
             help="Messaging provider for delivery.",
         ),
