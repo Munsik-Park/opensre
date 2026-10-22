@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import ValidationError
 
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
@@ -9,6 +11,8 @@ from infrastructure.scheduling.scheduler.credentials import resolve_buzz_credent
 from infrastructure.scheduling.scheduler.types import ScheduledTask
 from infrastructure.text.truncation import truncate
 from integrations.buzz.delivery import post_buzz_message
+
+logger = logging.getLogger(__name__)
 
 
 class BuzzScheduledDelivery:
@@ -33,10 +37,17 @@ class BuzzScheduledDelivery:
                 auth_tag=creds.get("auth_tag", ""),
                 buzz_path=creds.get("buzz_path", ""),
             )
-        except ValidationError:
+        except ValidationError as exc:
+            # With the input included, the rejected relay URL and any credential in it are logged.
+            logger.warning(
+                "[buzz] scheduled delivery of task %s failed: invalid Buzz config %s",
+                task.id,
+                exc.errors(include_url=False, include_context=False, include_input=False),
+            )
             return False, "Buzz relay_url (BUZZ_RELAY_URL) must start with http:// or https://", ""
         except ValueError:
             # subprocess refuses an argv element or environment value holding a NUL.
+            logger.warning("[buzz] scheduled delivery of task %s failed", task.id, exc_info=True)
             return (
                 False,
                 "Buzz channel, message or credential holds a character the buzz CLI cannot take",
