@@ -75,6 +75,7 @@ def scheduled_delivery_adapters() -> ScheduledDeliveryAdapters:
         InteractiveShellScheduledDelivery,
     )
     from infrastructure.scheduling.scheduler.types import Provider
+    from integrations.buzz import BuzzScheduledDelivery
     from integrations.discord.scheduled_delivery import DiscordScheduledDelivery
     from integrations.rocketchat.scheduled_delivery import RocketChatScheduledDelivery
     from integrations.scheduled_email import EmailScheduledDelivery
@@ -89,6 +90,7 @@ def scheduled_delivery_adapters() -> ScheduledDeliveryAdapters:
             Provider.ROCKETCHAT: RocketChatScheduledDelivery(),
             Provider.EMAIL: EmailScheduledDelivery(),
             Provider.INTERACTIVE_SHELL: InteractiveShellScheduledDelivery(),
+            Provider.BUZZ: BuzzScheduledDelivery(),
         }
     )
 
