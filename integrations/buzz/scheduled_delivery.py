@@ -24,7 +24,7 @@ class BuzzScheduledDelivery:
 
     def deliver(self, task: ScheduledTask, message: str) -> tuple[bool, str, str]:
         creds = resolve_buzz_credentials(task.params)
-        private_key = creds.get("private_key", "")
+        private_key = creds.get("private_key", "").strip()
         if not private_key:
             return False, "Missing private_key (BUZZ_PRIVATE_KEY) for Buzz", ""
 
