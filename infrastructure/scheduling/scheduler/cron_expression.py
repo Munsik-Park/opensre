@@ -150,16 +150,20 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
     return False
 
 
-def _earliest_field_value(field: str, maximum: int) -> str:
-    numbers = [int(match) for match in re.findall(r"\d+", field)]
-    allowed = [number for number in numbers if number <= maximum]
-    return str(min(allowed)) if allowed else "0"
+#: Minute and hour are 0, so a field's next value from here is the earliest it matches.
+_START_OF_DAY = datetime(2000, 1, 1)
+
+
+def _earliest_field_value(trigger: Any, field_name: str) -> str:
+    """The earliest value ``trigger``'s ``field_name`` field matches, as cron text."""
+    field = next(candidate for candidate in trigger.fields if candidate.name == field_name)
+    return str(field.get_next_value(_START_OF_DAY))
 
 
 def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     """Return ``cron``, or a coarser expression that fires at most once an hour.
 
-    A minute list or step (``8,23,38,53``, ``*/15``) keeps its earliest minute.
+    A minute list or step (``8,23,38,53``, ``*/15``) keeps the earliest minute it matches.
     A leading seconds field is dropped. Day, month, and weekday stay, so a
     daily schedule is not turned into an hourly one. An expression that
     already waits at least an hour is unchanged, including its whitespace
@@ -168,13 +172,14 @@ def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     normalized = _normalized_cron(cron)
     if not _fires_more_than_hourly(normalized, timezone):
         return normalized
+    trigger = build_cron_trigger(normalized, timezone)
     parts = normalized.split()
     if len(parts) == CRON_FIELD_COUNT_WITH_SECONDS:
         parts = parts[1:]
-    parts[0] = _earliest_field_value(parts[0], 59)
+    parts[0] = _earliest_field_value(trigger, "minute")
     capped = " ".join(parts)
     if _fires_more_than_hourly(capped, timezone):
-        parts[1] = _earliest_field_value(parts[1], 23)
+        parts[1] = _earliest_field_value(trigger, "hour")
         capped = " ".join(parts)
     return capped
 
