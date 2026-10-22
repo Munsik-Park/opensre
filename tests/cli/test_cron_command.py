@@ -17,8 +17,10 @@ from rich.console import Console
 
 import infrastructure.process.runtime_flags as runtime_flags
 import surfaces.cli.commands.cron as cron_module
+from bootstrap.adapters import scheduled_delivery_adapters
 from infrastructure.scheduling.scheduler.storage import BacklogSnapshot, TaskStoreSnapshot
 from infrastructure.scheduling.scheduler.types import Provider, TaskKind, TaskRun, TaskStatus
+from surfaces.interactive_shell.ui.cron_input.arguments import cron_options
 
 
 @pytest.fixture(autouse=True)
@@ -26,11 +28,19 @@ def _isolate_runtime_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime_flags, "_flags", runtime_flags.RuntimeFlags())
 
 
-def test_cron_add_provider_choices_match_full_provider_enum() -> None:
-    """cron delivery genuinely supports every Provider member."""
-    option = next(p for p in cron_module.cron_add.params if p.name == "provider")
-    assert isinstance(option.type, click.Choice)
-    assert set(option.type.choices) == {p.value for p in Provider}
+def test_cron_add_offers_exactly_the_providers_scheduled_delivery_reaches() -> None:
+    """A provider offered without a delivery adapter stores a schedule that fails every fire."""
+    deliverable = {p.value for p in scheduled_delivery_adapters().providers()}
+    option_by_surface = {
+        "opensre cron add": next(p for p in cron_module.cron_add.params if p.name == "provider"),
+        "/cron add": cron_options()["provider"],
+    }
+
+    for surface, option in option_by_surface.items():
+        assert isinstance(option.type, click.Choice)
+        assert set(option.type.choices) == deliverable, (
+            f"{surface} --provider must offer exactly the providers scheduled delivery reaches"
+        )
 
 
 @pytest.mark.parametrize("global_json", [False, True])
