@@ -252,7 +252,7 @@ def test_a_member_runs_their_private_loop_now_and_nobody_else_can(
 def test_a_loop_that_can_never_fire_is_refused_on_create_and_on_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Arrange: off chat, and a paused February-31 loop saved before the schedule check.
+    # Arrange: off chat, and a paused February-31 loop already in the store.
     monkeypatch.setattr(manage, "_session", lambda _context: SimpleNamespace())
     paused = add_task(
         ScheduledTask(

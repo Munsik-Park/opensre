@@ -1,9 +1,4 @@
-"""A stored task whose cron can never fire is not registered or counted as running.
-
-The count ``_register_jobs`` returns is what the shell (``scheduler: running N
-loop(s)``), ``opensre cron start`` and the gateway report. A one-shot reminder
-whose time has passed still fires, so it stays registered.
-"""
+"""A stored task whose cron can never fire is not registered or counted; an overdue reminder is."""
 
 from __future__ import annotations
 

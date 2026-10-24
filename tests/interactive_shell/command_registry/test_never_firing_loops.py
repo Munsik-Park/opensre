@@ -1,8 +1,6 @@
 """A cron schedule that can never fire is refused in the shell and never shown as running.
 
-``0 8 31 2 *`` (February 31) builds an APScheduler trigger, so ``/loops add``
-reported ``loop created`` and every view showed the loop as active although it
-had no possible execution time.
+``0 8 31 2 *`` (February 31) builds an APScheduler trigger that has no fire time.
 """
 
 from __future__ import annotations
@@ -46,7 +44,7 @@ def _dispatch(command: str) -> str:
 
 
 def _stored_loop(store: Path, *, cron: str, enabled: bool) -> ScheduledTask:
-    """A loop written by the store layer, which accepts any schedule (tasks saved before the check)."""
+    """A loop already in the store, whatever its schedule."""
     return add_task(
         ScheduledTask(
             name="NeverFire",

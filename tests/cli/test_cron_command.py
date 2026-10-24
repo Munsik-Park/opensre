@@ -1247,7 +1247,7 @@ def _isolated_task_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 
 def _store_never_firing_loop(store: Path) -> None:
-    """Written by the store layer, which accepts any schedule (a loop saved before the check)."""
+    """An enabled February-31 loop already in the store."""
     from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
     from infrastructure.scheduling.scheduler.storage.task_store import add_task
     from infrastructure.scheduling.scheduler.types import ScheduledTask

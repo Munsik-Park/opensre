@@ -342,7 +342,7 @@ def test_the_tool_is_registered_as_a_read_only_action_tool() -> None:
 def test_a_loop_that_can_never_fire_is_not_counted_active_and_needs_attention(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # Arrange: a real store holding a daily loop and a February-31 loop saved before the check
+    # Arrange: a real store holding a daily loop and a February-31 loop
     store = tmp_path / "tasks.json"
     monkeypatch.setattr(task_store, "default_task_store_path", lambda: store)
     for name, cron in (("Daily", "0 9 * * *"), ("NeverFire", "0 8 31 2 *")):

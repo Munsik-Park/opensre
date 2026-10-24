@@ -851,7 +851,7 @@ def test_a_report_too_large_for_one_request_sends_fewer_newest_runs(
 
 
 def test_a_loop_that_can_never_fire_is_reported_invalid_with_its_reason() -> None:
-    # Arrange: an enabled February-31 loop saved before the schedule check.
+    # Arrange: an enabled February-31 loop already in the store.
     stored = add_task(
         ScheduledTask(
             name="NeverFire",
