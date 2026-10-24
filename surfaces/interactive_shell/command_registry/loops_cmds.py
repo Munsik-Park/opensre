@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from rich.console import Console
 from rich.markup import escape
+from rich.padding import Padding
+from rich.text import Text
 
 from config.command_inputs import LOOPS_ADD_INPUT, LOOPS_TARGET_INPUT
 from config.constants.capabilities import SCHEDULER_HOST_CAPABILITY, SCHEDULER_HOST_IN_PROCESS
@@ -263,8 +265,10 @@ def _cmd_loops_list(session: Session, console: Console, args: list[str]) -> bool
         console.print()
     for loop in not_running:
         reason = CRON_NEVER_FIRES_ERROR if loop.never_fires else "invalid schedule"
-        console.print(f"[{WARNING}]not running:[/] {escape(loop.name)} — {reason}")
-        console.print(f"  [{DIM}]/loops show {escape(loop.id)}[/]")
+        warning = Text.assemble(("not running:", str(WARNING)), f" {loop.name} — {reason}")
+        console.print(Padding(warning, (0, 2), expand=False))
+        hint = Text(f"/loops show {loop.id}", style=str(DIM))
+        console.print(Padding(hint, (0, 2, 0, 4), expand=False))
     return True
 
 
