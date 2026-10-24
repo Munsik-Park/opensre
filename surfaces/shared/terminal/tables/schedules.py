@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from rich.console import Console
 from rich.text import Text
 
+from config.constants.scheduler import CRON_NEVER_FIRES_ERROR
 from infrastructure.scheduling.scheduler.loops import LoopSummary
 from infrastructure.scheduling.scheduler.types import TaskRun
 from infrastructure.terminal.theme import DIM, HIGHLIGHT, WARNING
@@ -22,6 +23,13 @@ def schedule_channels(loop: LoopSummary) -> str:
         "local" if channel == "interactive_shell" else channel
         for channel in (loop.channels or (loop.provider.value,))
     )
+
+
+def never_fires_warning(loop: LoopSummary) -> Text | None:
+    """The list-row line for a loop whose schedule can never fire, or ``None``."""
+    if not loop.never_fires:
+        return None
+    return Text(f"Not running: {CRON_NEVER_FIRES_ERROR}", style=WARNING)
 
 
 def print_schedules(
@@ -43,7 +51,8 @@ def print_schedules(
             else "—"
         )
         channels = schedule_channels(loop)
-        details: list[Text] = []
+        warning = never_fires_warning(loop)
+        details: list[Text] = [] if warning is None else [warning]
         run = latest.get(loop.id)
         if run is None:
             last = (

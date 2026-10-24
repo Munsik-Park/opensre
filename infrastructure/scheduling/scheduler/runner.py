@@ -27,6 +27,7 @@ from config.constants.turn_concurrency import (
 )
 from config.constants.work_items import WORK_ITEM_REMINDER_RUN_AT_PARAM
 from infrastructure.scheduling.scheduler.cron_expression import (
+    CronNeverFiresError,
     build_cron_trigger,
     cap_cron_at_most_hourly,
 )
@@ -78,7 +79,8 @@ _RECOVERY_INTERVAL_SECONDS = 60
 def _make_trigger(task: ScheduledTask) -> Any:
     """Build an APScheduler trigger from a task's schedule and timezone.
 
-    Raises ValueError if the cron expression or timezone is invalid.
+    Raises ValueError if the cron expression or timezone is invalid, keeping
+    CronNeverFiresError for a schedule that can never fire.
     """
     if task.kind is TaskKind.WORK_ITEM_REMINDER:
         run_at = task.params.get(WORK_ITEM_REMINDER_RUN_AT_PARAM, "").strip()
@@ -100,7 +102,8 @@ def _make_trigger(task: ScheduledTask) -> Any:
     try:
         return build_cron_trigger(task.cron, task.timezone)
     except ValueError as exc:
-        raise ValueError(f"Invalid cron/timezone for task {task.id}: {exc}") from exc
+        error = CronNeverFiresError if isinstance(exc, CronNeverFiresError) else ValueError
+        raise error(f"Invalid cron/timezone for task {task.id}: {exc}") from exc
 
 
 def _next_run_from_trigger(trigger: Any, now: datetime | None = None) -> str | None:

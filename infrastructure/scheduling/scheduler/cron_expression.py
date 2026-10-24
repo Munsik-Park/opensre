@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from itertools import groupby
 from typing import Any
 
+from config.constants.scheduler import CRON_NEVER_FIRES_ERROR
+
 #: A standard crontab line: minute, hour, day, month, day_of_week.
 CRON_FIELD_COUNT = 5
 #: A crontab line with a leading seconds field.
@@ -31,6 +33,11 @@ CRON_FIELD_COUNT_ERROR = (
     f"cron expression must have {CRON_FIELD_COUNT} fields"
     f" ({CRON_FIELD_COUNT_WITH_SECONDS} with a leading seconds field)"
 )
+
+
+class CronNeverFiresError(ValueError):
+    """A well-formed cron schedule whose dates never occur, so it has no future fire time."""
+
 
 #: APScheduler 3.x day names, indexed like ``datetime.weekday()`` (0 = Monday).
 _WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -99,7 +106,8 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
     """Build an APScheduler ``CronTrigger`` for a five- or six-field crontab expression.
 
     Raises ``ValueError`` when the field count, a field value, or the timezone
-    is invalid, so callers reject a schedule before it is stored.
+    is invalid, and :class:`CronNeverFiresError` when the schedule can never
+    fire, so callers reject a schedule before it is stored.
     """
     from apscheduler.triggers.cron import CronTrigger
 
@@ -113,7 +121,7 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
         raise ValueError(f"{CRON_FIELD_COUNT_ERROR}: {cron!r}")
 
     try:
-        return CronTrigger(
+        trigger = CronTrigger(
             second=second,
             minute=minute,
             hour=hour,
@@ -124,6 +132,10 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
         )
     except (ValueError, TypeError, KeyError) as exc:
         raise ValueError(f"invalid cron expression or timezone: {exc}") from exc
+    # With no year, start or end date, APScheduler answers None only after searching to year 9999.
+    if trigger.get_next_fire_time(None, datetime.now(UTC)) is None:
+        raise CronNeverFiresError(CRON_NEVER_FIRES_ERROR)
+    return trigger
 
 
 _MIN_FIRE_GAP_SECONDS = 60 * 60
@@ -184,6 +196,7 @@ __all__ = [
     "CRON_FIELD_COUNT_ERROR",
     "CRON_FIELD_COUNT_WITH_SECONDS",
     "CRON_FORMAT_HELP",
+    "CronNeverFiresError",
     "build_cron_trigger",
     "cap_cron_at_most_hourly",
     "day_of_week_names",

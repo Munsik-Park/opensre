@@ -7,8 +7,9 @@ from rich.markup import escape
 
 from config.command_inputs import LOOPS_ADD_INPUT, LOOPS_TARGET_INPUT
 from config.constants.capabilities import SCHEDULER_HOST_CAPABILITY, SCHEDULER_HOST_IN_PROCESS
+from config.constants.scheduler import CRON_NEVER_FIRES_ERROR
 from core.agent_harness.tools import capability_values
-from infrastructure.scheduling.scheduler.loop_constants import LOOP_TIME_PARAM
+from infrastructure.scheduling.scheduler.loop_constants import LOOP_STATUS_ACTIVE, LOOP_TIME_PARAM
 from infrastructure.scheduling.scheduler.types import DeliveryStatus, TaskRun
 from surfaces.interactive_shell.command_registry.input_collection import (
     can_browse_records,
@@ -232,12 +233,16 @@ def _cmd_loops(session: Session, console: Console, args: list[str]) -> bool:
 
 def _cmd_loops_list(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
     from infrastructure.scheduling.scheduler.loop_results import latest_loop_runs
-    from infrastructure.scheduling.scheduler.loops import list_loop_summaries
+    from infrastructure.scheduling.scheduler.loops import LoopSummary, list_loop_summaries
     from surfaces.interactive_shell.ui.loops import render_loops
 
     sub = args[0].lower() if args else "list"
     include_disabled = sub != "active"
     loops = list_loop_summaries(include_disabled=include_disabled)
+    not_running: list[LoopSummary] = []
+    if not include_disabled:
+        not_running = [loop for loop in loops if loop.status != LOOP_STATUS_ACTIVE]
+        loops = [loop for loop in loops if loop.status == LOOP_STATUS_ACTIVE]
     if not loops:
         if include_disabled:
             console.print(
@@ -250,11 +255,16 @@ def _cmd_loops_list(session: Session, console: Console, args: list[str]) -> bool
                 f"[{DIM}]no active loops. Run[/] [{HIGHLIGHT}]/loops all[/] "
                 f"[{DIM}]to see draft starter loops.[/]"
             )
-        return True
-
-    render_loops(
-        console, loops, latest_loop_runs(loops), browse=can_browse_records(session, console)
-    )
+    else:
+        render_loops(
+            console, loops, latest_loop_runs(loops), browse=can_browse_records(session, console)
+        )
+    for loop in not_running:
+        reason = CRON_NEVER_FIRES_ERROR if loop.never_fires else "invalid schedule"
+        console.print(
+            f"[{WARNING}]not running:[/] {escape(loop.name)} — {reason} "
+            f"[{DIM}]· /loops show {escape(loop.id)}[/]"
+        )
     return True
 
 

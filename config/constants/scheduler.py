@@ -5,6 +5,9 @@ from __future__ import annotations
 WEEKDAY_CRON_FIELD = "mon-fri"
 """Monday to Friday in day names, the spelling a crontab ``1-5`` is translated to."""
 
+CRON_NEVER_FIRES_ERROR = "this cron schedule has no possible future execution time"
+"""Why a cron whose dates never occur (``0 8 31 2 *``) is refused, and a stored one never runs."""
+
 # Whether the gateway process co-hosts the scheduler loop in-process. On by
 # default (single-process deployment). Set false to run the scheduler as its own
 # service (MODE=scheduler / `opensre cron start`) so tasks are not fired twice.
@@ -55,6 +58,7 @@ TURN_INTERRUPTED_ERROR_KIND = "turn_interrupted"
 STATELESS_LOOP_IDLE_REPLY = "NO_ACTION"
 
 __all__ = [
+    "CRON_NEVER_FIRES_ERROR",
     "NON_RETRYABLE_WORK_ERROR_KINDS",
     "OPENSRE_GATEWAY_HOST_SCHEDULER_ENV",
     "OPENSRE_SCHEDULER_BUILD_ENV",

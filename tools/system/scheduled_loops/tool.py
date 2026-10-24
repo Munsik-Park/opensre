@@ -10,6 +10,7 @@ from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.scheduling.scheduler.cron_expression import day_of_week_names
+from infrastructure.scheduling.scheduler.loop_constants import LOOP_STATUS_ACTIVE
 from infrastructure.scheduling.scheduler.loop_results import latest_loop_runs
 from infrastructure.scheduling.scheduler.loops import LoopSummary, summarize_loops
 from infrastructure.scheduling.scheduler.storage import get_task_store_snapshot
@@ -171,7 +172,7 @@ def _summary(rows: list[dict[str, Any]], *, store_missing: bool) -> str:
         if store_missing:
             return "No scheduler task store exists here yet, so no loops are configured."
         return "No scheduled loops are configured."
-    active = sum(1 for row in rows if row["enabled"])
+    active = sum(1 for row in rows if row["status"] == LOOP_STATUS_ACTIVE)
     needs_attention = sum(1 for row in rows if row["needs_attention"])
     noun = "loop" if len(rows) == 1 else "loops"
     headline = f"{len(rows)} scheduled {noun}, {active} active"
