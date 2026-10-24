@@ -31,6 +31,7 @@ CRON_FIELD_COUNT_ERROR = (
     f"cron expression must have {CRON_FIELD_COUNT} fields"
     f" ({CRON_FIELD_COUNT_WITH_SECONDS} with a leading seconds field)"
 )
+CRON_NEVER_FIRES_ERROR = "this cron schedule has no possible future execution time"
 
 #: APScheduler 3.x day names, indexed like ``datetime.weekday()`` (0 = Monday).
 _WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -99,7 +100,8 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
     """Build an APScheduler ``CronTrigger`` for a five- or six-field crontab expression.
 
     Raises ``ValueError`` when the field count, a field value, or the timezone
-    is invalid, so callers reject a schedule before it is stored.
+    is invalid, or when the schedule can never fire (``0 8 31 2 *``), so
+    callers reject a schedule before it is stored.
     """
     from apscheduler.triggers.cron import CronTrigger
 
@@ -113,7 +115,7 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
         raise ValueError(f"{CRON_FIELD_COUNT_ERROR}: {cron!r}")
 
     try:
-        return CronTrigger(
+        trigger = CronTrigger(
             second=second,
             minute=minute,
             hour=hour,
@@ -124,6 +126,10 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
         )
     except (ValueError, TypeError, KeyError) as exc:
         raise ValueError(f"invalid cron expression or timezone: {exc}") from exc
+    # A crontab line has no year field, so no next fire time from now means none ever.
+    if trigger.get_next_fire_time(None, datetime.now(UTC)) is None:
+        raise ValueError(f"{CRON_NEVER_FIRES_ERROR}: {cron!r}")
+    return trigger
 
 
 _MIN_FIRE_GAP_SECONDS = 60 * 60
@@ -184,6 +190,7 @@ __all__ = [
     "CRON_FIELD_COUNT_ERROR",
     "CRON_FIELD_COUNT_WITH_SECONDS",
     "CRON_FORMAT_HELP",
+    "CRON_NEVER_FIRES_ERROR",
     "build_cron_trigger",
     "cap_cron_at_most_hourly",
     "day_of_week_names",

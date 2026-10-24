@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,9 +13,10 @@ from config.constants.scheduler import WORK_UNVERIFIED_ERROR_KIND
 from config.principal import Actor, Principal, StorageScope
 from config.scope_context import bound_storage_scope
 from infrastructure.scheduling.scheduler.cron_expression import build_cron_trigger
+from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
 from infrastructure.scheduling.scheduler.loops import LoopSummary
 from infrastructure.scheduling.scheduler.outcomes import WorkOutcome, WorkStatus
-from infrastructure.scheduling.scheduler.storage import TaskStoreSnapshot
+from infrastructure.scheduling.scheduler.storage import TaskStoreSnapshot, add_task, task_store
 from infrastructure.scheduling.scheduler.types import (
     Provider,
     ScheduledTask,
@@ -335,3 +337,34 @@ def test_the_tool_is_registered_as_a_read_only_action_tool() -> None:
     # Assert
     assert tool.side_effect_level == "read_only"
     assert set(tool.input_schema["properties"]) == {"include_disabled"}
+
+
+def test_a_loop_that_can_never_fire_is_not_counted_active_and_needs_attention(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Arrange: a real store holding a daily loop and a February-31 loop
+    store = tmp_path / "tasks.json"
+    monkeypatch.setattr(task_store, "default_task_store_path", lambda: store)
+    for name, cron in (("Daily", "0 9 * * *"), ("NeverFire", "0 8 31 2 *")):
+        add_task(
+            ScheduledTask(
+                name=name,
+                kind=TaskKind.MANUAL_LOOP,
+                cron=cron,
+                provider=Provider.INTERACTIVE_SHELL,
+                params={LOOP_PROMPT_PARAM: f"{name} audit"},
+            ),
+            store,
+        )
+
+    # Act
+    result = list_scheduled_loops()
+
+    # Assert: the headline counts only the daily loop as active; the other one says why
+    assert result["response_text"].splitlines()[0] == (
+        "2 scheduled loops, 1 active, 1 needs attention."
+    )
+    [never] = [row for row in result["loops"] if row["name"] == "NeverFire"]
+    assert (never["status"], never["enabled"], never["needs_attention"]) == ("invalid", True, True)
+    assert never["health"].startswith("not running:")
+    assert "no possible future execution time" in never["health"]

@@ -250,6 +250,11 @@ skipped, so a slow tick never overlaps with the next one.
 Cron expressions are validated at `cron add` time using APScheduler's
 `CronTrigger`. Invalid expressions are rejected immediately.
 
+A schedule that can never run, such as `0 8 31 2 *` (February 31), is refused
+when you add it, change a loop to it, or start a loop that has it. A loop that
+already has such a schedule is listed as `Invalid` with the reason and does not
+run until you change its schedule.
+
 ## Timezone Behavior
 
 - All fire times are internally converted to UTC for dedup consistency

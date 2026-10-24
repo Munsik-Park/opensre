@@ -61,3 +61,16 @@ def test_the_stored_next_run_skips_the_weekend() -> None:
 
     # Assert: Monday, not Saturday
     assert next_run == "2026-10-12T08:00:00+00:00"
+
+
+def test_a_schedule_that_can_never_fire_is_rejected_before_it_is_stored() -> None:
+    """February 31 never occurs, yet APScheduler builds a trigger for it with no fire time."""
+    with pytest.raises(ValueError, match="no possible future execution time"):
+        build_cron_trigger("0 8 31 2 *", "UTC")
+
+
+def test_a_leap_day_schedule_is_rare_but_accepted() -> None:
+    """A schedule whose next fire is years away still fires; only one that never fires is refused."""
+    trigger = build_cron_trigger("0 8 29 2 *", "UTC")
+
+    assert trigger.get_next_fire_time(None, _SUNDAY_NOON) == datetime(2028, 2, 29, 8, tzinfo=UTC)

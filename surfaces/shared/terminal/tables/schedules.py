@@ -24,6 +24,16 @@ def schedule_channels(loop: LoopSummary) -> str:
     )
 
 
+_SCHEDULE_ERROR_PREVIEW_CELLS = 160
+
+
+def schedule_error_details(loop: LoopSummary) -> tuple[Text, ...]:
+    """A warning line carrying the loop's schedule error, or no lines when it has none."""
+    return description_details(
+        loop.schedule_error, width=_SCHEDULE_ERROR_PREVIEW_CELLS, style=str(WARNING)
+    )
+
+
 def print_schedules(
     console: Console,
     loops: Sequence[LoopSummary],
@@ -43,7 +53,7 @@ def print_schedules(
             else "—"
         )
         channels = schedule_channels(loop)
-        details: list[Text] = []
+        details: list[Text] = list(schedule_error_details(loop))
         run = latest.get(loop.id)
         if run is None:
             last = (

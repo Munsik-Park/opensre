@@ -22,7 +22,7 @@ from surfaces.shared.terminal.components.rendering import (
 from surfaces.shared.terminal.components.time_format import format_repl_timestamp
 from surfaces.shared.terminal.tables.descriptions import description_details
 from surfaces.shared.terminal.tables.records import RecordColumn, RecordRow, RecordTable
-from surfaces.shared.terminal.tables.schedules import schedule_channels
+from surfaces.shared.terminal.tables.schedules import schedule_channels, schedule_error_details
 
 
 def _timestamp(value: str | None) -> datetime | None:
@@ -127,7 +127,7 @@ def render_loops(
     for loop in loops:
         state = "Invalid" if loop.schedule_error else "Active" if loop.enabled else "Paused"
         state_style = WARNING if loop.schedule_error else HIGHLIGHT if loop.enabled else DIM
-        details: list[Text] = []
+        details: list[Text] = list(schedule_error_details(loop))
         run = latest.get(loop.id)
         if run is None:
             details.append(
@@ -252,7 +252,7 @@ def render_loop_details(
     console.print(Text("Configuration", style=BOLD_BRAND))
     rows = (
         ("ID", loop.id),
-        ("Status", "Active" if loop.enabled else "Paused"),
+        ("Status", "Invalid" if loop.schedule_error else "Active" if loop.enabled else "Paused"),
         ("Schedule", f"{loop.cron} ({loop.timezone})"),
         ("Next run", _exact_time(loop.next_run) if loop.enabled else "Paused"),
         ("Channels", ", ".join(channel.replace("_", " ") for channel in loop.channels)),
