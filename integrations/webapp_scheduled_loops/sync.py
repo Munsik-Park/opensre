@@ -560,8 +560,6 @@ def _loop_row(loop: LoopSummary, tasks: Sequence[ScheduledTask]) -> dict[str, An
         "cron": loop.cron,
         "timezone": loop.timezone,
         "channels": list(loop.channels),
-        # Only active, paused or draft: one request carries every row, so a value the app rejects
-        # fails the whole list.
         "status": LOOP_STATUS_PAUSED if loop.status == LOOP_STATUS_INVALID else loop.status,
         "schedule_error": loop.schedule_error,
         "last_run": loop.last_run,
