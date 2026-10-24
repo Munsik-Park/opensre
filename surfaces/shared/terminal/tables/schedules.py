@@ -28,7 +28,7 @@ _SCHEDULE_ERROR_PREVIEW_CELLS = 160
 
 
 def schedule_error_details(loop: LoopSummary) -> tuple[Text, ...]:
-    """A warning line saying why a schedule cannot run, or no lines when it can."""
+    """A warning line carrying the loop's schedule error, or no lines when it has none."""
     return description_details(
         loop.schedule_error, width=_SCHEDULE_ERROR_PREVIEW_CELLS, style=str(WARNING)
     )

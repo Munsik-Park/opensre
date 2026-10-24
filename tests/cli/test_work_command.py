@@ -74,7 +74,7 @@ def test_work_list_omits_store_footer_but_path_remains_available(
 def test_schedule_checkin_refuses_a_schedule_that_can_never_fire(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """February 31 never occurs; a check-in on it would be stored and never run."""
+    """February 31 never occurs."""
     # Arrange
     scheduler_file = tmp_path / "scheduler_tasks.json"
     monkeypatch.setattr(
