@@ -341,6 +341,42 @@ def test_truncate_for_telegram_html_noop_when_under_limit() -> None:
     assert truncate_for_telegram_html(s, 50) == s
 
 
+def test_truncate_for_telegram_html_closes_pre_cut_mid_block() -> None:
+    src = "<b>Evidence</b>\n<pre>" + ("ERROR pool exhausted\n" * 300) + "</pre>"
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    assert len(out) <= 4096
+    assert out.endswith("</pre>…")
+    assert out.count("<pre>") == out.count("</pre>") == 1
+
+
+def test_truncate_for_telegram_html_keeps_sql_ne_operator_literal() -> None:
+    src = "<b>slow query</b> WHERE state <> 'done' " + ("y" * 5000)
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    assert out == src[:4095] + "…"
+
+
+def test_truncate_for_telegram_html_empty_end_tag_closes_innermost() -> None:
+    src = "<b>x</> mid <b>" + ("y" * 5000) + "</b>"
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    assert len(out) <= 4096
+    assert out.endswith("y</b>…")
+    assert out.count("</b>") == 1
+
+
+def test_truncate_for_telegram_html_keeps_text_after_literal_lt_and_amp() -> None:
+    src = "<b>R&D</b> a < b " + ("y" * 5000)
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    assert out == src[:4095] + "…"
+
+
+def test_truncate_for_telegram_html_drops_tag_cut_inside_quoted_gt() -> None:
+    prefix = "y" * 100
+    src = prefix + '<a href="https://example.com/?q=a>bcdefgh">link</a>' + ("z" * 100)
+    max_len = len(prefix) + len('<a href="https://example.com/?q=a>bcdefg') + 1
+    out = truncate_for_telegram_html(src, max_len, suffix="…")
+    assert out == prefix + "…"
+
+
 # ---------------------------------------------------------------------------
 # Shared-transport delegation (regression coverage for the #864 refactor)
 # ---------------------------------------------------------------------------

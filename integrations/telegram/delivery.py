@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import logging
 import re
+import string
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
 
@@ -17,60 +20,128 @@ logger = logging.getLogger(__name__)
 
 _MESSAGE_LIMIT = MAX_MESSAGE_SIZE
 _BOT_TOKEN_RE = re.compile(r"(bot)[^/]+(/)")
-_SIMPLE_TAG_NAMES = frozenset({"b", "i", "u", "code"})
+_TELEGRAM_HTML_TAG_NAMES = frozenset(
+    {
+        "a",
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "ins",
+        "s",
+        "strike",
+        "del",
+        "code",
+        "pre",
+        "span",
+        "tg-spoiler",
+        "tg-emoji",
+        "tg-time",
+        "blockquote",
+    }
+)
+# Telegram's parser ends a tag name at these only; ``str.isspace`` also matches
+# ``\f`` and Unicode spaces, which Telegram reads as part of the name.
+_TELEGRAM_HTML_SPACE = frozenset(" \t\r\n\v\0")
+_CHAR_REF_CHARS = frozenset("#" + string.ascii_letters + string.digits)
+# Telegram decodes no ``&`` run longer than this (``&#1114110``); a cut through a
+# longer run leaves literal text, not a broken reference.
+_MAX_CHAR_REF_LEN = 9
 
 
-def _strip_trailing_incomplete_tag(chunk: str) -> str:
-    """Drop a trailing ``<``… fragment with no closing ``>``."""
-    while True:
-        last_lt = chunk.rfind("<")
-        if last_lt == -1:
-            return chunk
-        if ">" in chunk[last_lt:]:
-            return chunk
-        chunk = chunk[:last_lt].rstrip()
+@dataclass(frozen=True, slots=True)
+class _HtmlTag:
+    start: int
+    end: int
+    name: str
+    closing: bool
 
 
-def _strip_trailing_partial_entity(chunk: str) -> str:
-    """Remove a trailing ``&``… suffix that is not a complete character reference."""
-    amp = chunk.rfind("&")
-    if amp == -1:
-        return chunk
-    tail = chunk[amp:]
-    if ";" in tail:
-        return chunk
-    return chunk[:amp].rstrip()
+def _tag_name_end(text: str, pos: int) -> int:
+    while pos < len(text) and text[pos] not in _TELEGRAM_HTML_SPACE and text[pos] != ">":
+        pos += 1
+    return pos
 
 
-def _balance_telegram_markup_tags(fragment: str) -> str:
-    """Append closing tags for open ``b``/``i``/``u``/``code``/``a`` elements at end of *fragment*."""
-    stack: list[str] = []
-    pos = 0
-    while pos < len(fragment):
-        if fragment[pos] != "<":
-            pos += 1
+def _start_tag_end(text: str, pos: int) -> int:
+    """Return the offset just past the ``>`` ending a start tag, or ``len(text)``.
+
+    A quoted attribute value may hold ``>``; Telegram reads a quote as opening a
+    value only right after ``=`` and optional whitespace.
+    """
+    while pos < len(text):
+        char = text[pos]
+        if char == ">":
+            return pos + 1
+        pos += 1
+        if char != "=":
             continue
-        end = fragment.find(">", pos)
-        if end == -1:
-            break
-        raw = fragment[pos : end + 1]
-        low = raw.lower()
-        if low.startswith("<a ") and not low.startswith("</"):
-            stack.append("a")
-        elif low == "</a>":
-            if stack and stack[-1] == "a":
-                stack.pop()
-        elif low.startswith("</"):
-            name = low[2:-1].strip().lower()
-            if name in _SIMPLE_TAG_NAMES and stack and stack[-1] == name:
-                stack.pop()
-        elif not low.startswith("<a ") and low[1] != "/":
-            name = low[1:-1].strip().lower().split()[0]
-            if name in _SIMPLE_TAG_NAMES:
-                stack.append(name)
-        pos = end + 1
+        while pos < len(text) and text[pos] in _TELEGRAM_HTML_SPACE:
+            pos += 1
+        if pos < len(text) and text[pos] in "\"'":
+            close = text.find(text[pos], pos + 1)
+            if close == -1:
+                return len(text)
+            pos = close + 1
+    return len(text)
 
-    return fragment + "".join(f"</{t}>" for t in reversed(stack))
+
+def _read_html_tags(text: str) -> list[_HtmlTag]:
+    """Read the tags of *text* as Telegram's ``parse_mode=HTML`` parser does.
+
+    A ``<`` that starts neither a start tag of a supported name nor an end tag
+    is one literal character.
+    """
+    tags: list[_HtmlTag] = []
+    pos = text.find("<")
+    while pos != -1:
+        closing = text.startswith("/", pos + 1)
+        name_start = pos + 2 if closing else pos + 1
+        name_end = _tag_name_end(text, name_start)
+        name = text[name_start:name_end]
+        if name.isascii() and (name.lower() in _TELEGRAM_HTML_TAG_NAMES or (closing and not name)):
+            if closing:
+                gt = text.find(">", name_end)
+                end = len(text) if gt == -1 else gt + 1
+            else:
+                end = _start_tag_end(text, name_end)
+            tags.append(_HtmlTag(pos, end, name.lower(), closing))
+            pos = text.find("<", end)
+        else:
+            pos = text.find("<", pos + 1)
+    return tags
+
+
+def _cut_outside_tags(tags: list[_HtmlTag], starts: list[int], cut: int) -> int:
+    idx = bisect.bisect_left(starts, cut) - 1
+    if idx >= 0 and tags[idx].end > cut:
+        return tags[idx].start
+    return cut
+
+
+def _cut_before_split_char_ref(text: str, cut: int) -> int:
+    """Move *cut* before a trailing ``&`` run only when the cut split that run."""
+    amp = text.rfind("&", max(0, cut - _MAX_CHAR_REF_LEN), cut)
+    if amp == -1 or not all(char in _CHAR_REF_CHARS for char in text[amp + 1 : cut]):
+        return cut
+    if text[cut] in _CHAR_REF_CHARS or text[cut] == ";":
+        return amp
+    return cut
+
+
+def _closing_tags(open_and_close: list[_HtmlTag]) -> str:
+    """Closing tags for the elements *open_and_close* leaves open, innermost first.
+
+    An end tag closes the innermost open element whatever its name, as ``</>`` does.
+    """
+    stack: list[str] = []
+    for tag in open_and_close:
+        if not tag.closing:
+            stack.append(tag.name)
+        elif stack:
+            stack.pop()
+    return "".join(f"</{name}>" for name in reversed(stack))
 
 
 def truncate_for_telegram_html(text: str, max_len: int, suffix: str = "…") -> str:
@@ -79,13 +150,13 @@ def truncate_for_telegram_html(text: str, max_len: int, suffix: str = "…") -> 
         return text
     if max_len <= len(suffix):
         return suffix[:max_len]
+    tags = _read_html_tags(text)
+    starts = [tag.start for tag in tags]
     room = max_len - len(suffix)
     while room > 0:
-        chunk = text[:room]
-        chunk = _strip_trailing_incomplete_tag(chunk)
-        chunk = _strip_trailing_partial_entity(chunk)
-        chunk = _balance_telegram_markup_tags(chunk)
-        candidate = chunk + suffix
+        cut = _cut_before_split_char_ref(text, _cut_outside_tags(tags, starts, room))
+        closers = _closing_tags(tags[: bisect.bisect_left(starts, cut)])
+        candidate = text[:cut] + closers + suffix
         if len(candidate) <= max_len:
             return candidate
         room -= 1
