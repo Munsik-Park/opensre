@@ -259,12 +259,12 @@ def _cmd_loops_list(session: Session, console: Console, args: list[str]) -> bool
         render_loops(
             console, loops, latest_loop_runs(loops), browse=can_browse_records(session, console)
         )
+    if not_running:
+        console.print()
     for loop in not_running:
         reason = CRON_NEVER_FIRES_ERROR if loop.never_fires else "invalid schedule"
-        console.print(
-            f"[{WARNING}]not running:[/] {escape(loop.name)} — {reason} "
-            f"[{DIM}]· /loops show {escape(loop.id)}[/]"
-        )
+        console.print(f"[{WARNING}]not running:[/] {escape(loop.name)} — {reason}")
+        console.print(f"  [{DIM}]/loops show {escape(loop.id)}[/]")
     return True
 
 
