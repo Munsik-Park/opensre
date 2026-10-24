@@ -183,11 +183,10 @@ def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     the gap. That holds at every spring-forward and at every fall-back of 30
     minutes or more; at a shorter fall-back the repeated fire still counts.
 
-    The accepted consequence, in a zone with a 30-minute shift such as
-    ``Australia/Lord_Howe``: an hourly or hourly-capped schedule has one pair
-    of fires 30 minutes apart per transition, and a daily schedule timed
-    inside the repeated half hour fires twice, 30 minutes apart, at the
-    fall-back.
+    The accepted consequence in ``Australia/Lord_Howe`` (30-minute shift): an
+    hourly or hourly-capped schedule at minute 30 or later has one pair of
+    fires 30 minutes apart per transition, and a daily schedule timed inside
+    the repeated half hour fires twice, 30 minutes apart, at the fall-back.
 
     A minute list or step (``8,23,38,53``, ``*/15``) keeps its earliest
     minute, and a leading seconds field is dropped. Hour, day, month, and
