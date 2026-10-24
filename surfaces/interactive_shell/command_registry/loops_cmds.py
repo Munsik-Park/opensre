@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from rich.console import Console
 from rich.markup import escape
-from rich.padding import Padding
-from rich.text import Text
 
 from config.command_inputs import LOOPS_ADD_INPUT, LOOPS_TARGET_INPUT
 from config.constants.capabilities import SCHEDULER_HOST_CAPABILITY, SCHEDULER_HOST_IN_PROCESS
-from config.constants.scheduler import CRON_NEVER_FIRES_ERROR
 from core.agent_harness.tools import capability_values
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_STATUS_ACTIVE, LOOP_TIME_PARAM
 from infrastructure.scheduling.scheduler.types import DeliveryStatus, TaskRun
@@ -236,7 +233,7 @@ def _cmd_loops(session: Session, console: Console, args: list[str]) -> bool:
 def _cmd_loops_list(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
     from infrastructure.scheduling.scheduler.loop_results import latest_loop_runs
     from infrastructure.scheduling.scheduler.loops import LoopSummary, list_loop_summaries
-    from surfaces.interactive_shell.ui.loops import render_loops
+    from surfaces.interactive_shell.ui.loops import render_loops, render_not_running_loops
 
     sub = args[0].lower() if args else "list"
     include_disabled = sub != "active"
@@ -261,14 +258,7 @@ def _cmd_loops_list(session: Session, console: Console, args: list[str]) -> bool
         render_loops(
             console, loops, latest_loop_runs(loops), browse=can_browse_records(session, console)
         )
-    if not_running:
-        console.print()
-    for loop in not_running:
-        reason = CRON_NEVER_FIRES_ERROR if loop.never_fires else "invalid schedule"
-        warning = Text.assemble(("not running:", str(WARNING)), f" {loop.name} — {reason}")
-        console.print(Padding(warning, (0, 2), expand=False))
-        hint = Text(f"/loops show {loop.id}", style=str(DIM))
-        console.print(Padding(hint, (0, 2, 0, 4), expand=False))
+    render_not_running_loops(console, not_running)
     return True
 
 

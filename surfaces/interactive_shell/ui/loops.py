@@ -7,8 +7,10 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, tzinfo
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.text import Text
 
+from config.constants.scheduler import CRON_NEVER_FIRES_ERROR
 from infrastructure.scheduling.scheduler.local_delivery import LocalLoopMessage
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_MODE_REPORT, LOOP_STATUS_ACTIVE
 from infrastructure.scheduling.scheduler.loops import LoopSummary
@@ -185,6 +187,19 @@ def render_loops(
     )
 
 
+def render_not_running_loops(console: Console, loops: Sequence[LoopSummary]) -> None:
+    """Name each given loop that does not run, with its /loops show route; nothing for none."""
+    if not loops:
+        return
+    console.print()
+    for loop in loops:
+        reason = CRON_NEVER_FIRES_ERROR if loop.never_fires else "invalid schedule"
+        warning = Text.assemble(("not running:", str(WARNING)), f" {loop.name} — {reason}")
+        console.print(Padding(warning, (0, 2), expand=False))
+        hint = Text(f"/loops show {loop.id}", style=str(DIM))
+        console.print(Padding(hint, (0, 2, 0, 4), expand=False))
+
+
 def _exact_time(value: str | None) -> str:
     timestamp = _timestamp(value)
     return timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (%z)") if timestamp else "—"
@@ -301,4 +316,9 @@ def render_loop_messages(console: Console, messages: Sequence[LocalLoopMessage])
     )
 
 
-__all__ = ["render_loop_details", "render_loop_messages", "render_loops"]
+__all__ = [
+    "render_loop_details",
+    "render_loop_messages",
+    "render_loops",
+    "render_not_running_loops",
+]
