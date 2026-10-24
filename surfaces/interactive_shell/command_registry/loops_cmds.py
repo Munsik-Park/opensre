@@ -30,7 +30,7 @@ from surfaces.shared.terminal.components.time_format import format_repl_timestam
 
 _LOOPS_FIRST_ARGS: tuple[tuple[str, str], ...] = (
     ("list", "all active and draft loops"),
-    ("active", "only enabled loops"),
+    ("active", "only loops the scheduler runs"),
     ("all", "active and draft loops"),
     ("show", "full report, run history, and configuration"),
     ("add", "create a recurring prompt loop"),
