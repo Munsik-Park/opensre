@@ -135,7 +135,10 @@ def _normalized_cron(cron: str) -> str:
 
 
 def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
-    """Whether two of the next fires are less than an hour apart."""
+    """Whether two of the next fires are less than an hour apart.
+
+    Gaps are measured as :func:`cap_cron_at_most_hourly` states.
+    """
     trigger = build_cron_trigger(cron, timezone)
     previous = None
     cursor = datetime.now(UTC)
@@ -143,11 +146,24 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
         fire = trigger.get_next_fire_time(previous, cursor)
         if fire is None:
             return False
-        if previous is not None and (fire - previous).total_seconds() < _MIN_FIRE_GAP_SECONDS:
+        if previous is not None and _less_than_an_hour_apart(previous, fire):
             return True
         previous = fire
         cursor = fire
     return False
+
+
+def _less_than_an_hour_apart(previous: datetime, fire: datetime) -> bool:
+    elapsed = (fire.astimezone(UTC) - previous.astimezone(UTC)).total_seconds()
+    if elapsed == 0:
+        # APScheduler can yield a wall time a spring-forward skips, at the same
+        # instant as the fire after it: one instant, not a gap.
+        return False
+    wall = (fire.replace(tzinfo=None) - previous.replace(tzinfo=None)).total_seconds()
+    offset_change = abs(wall - elapsed)
+    if offset_change < _MIN_FIRE_GAP_SECONDS:
+        return elapsed + offset_change < _MIN_FIRE_GAP_SECONDS
+    return elapsed < _MIN_FIRE_GAP_SECONDS
 
 
 def _earliest_field_value(field: str, maximum: int) -> str:
@@ -159,11 +175,24 @@ def _earliest_field_value(field: str, maximum: int) -> str:
 def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     """Return ``cron``, or a coarser expression that fires at most once an hour.
 
-    A minute list or step (``8,23,38,53``, ``*/15``) keeps its earliest minute.
-    A leading seconds field is dropped. Day, month, and weekday stay, so a
-    daily schedule is not turned into an hourly one. An expression that
-    already waits at least an hour is unchanged, including its whitespace
-    collapsed to single spaces.
+    Gaps between the next fires are measured in elapsed time, so a DST
+    transition of an hour or more neither caps an hourly schedule nor spares
+    a faster one. A gap shortened below an hour only by a DST shift of less
+    than an hour does not count as firing more than hourly: across a UTC
+    offset change smaller than an hour, the size of the change is added to
+    the gap. That holds at every spring-forward and at every fall-back of 30
+    minutes or more; at a shorter fall-back the repeated fire still counts.
+
+    The accepted consequence in ``Australia/Lord_Howe`` (30-minute shift): an
+    hourly or hourly-capped schedule at minute 30 or later has one pair of
+    fires 30 minutes apart per transition, and a daily schedule timed inside
+    the repeated half hour fires twice, 30 minutes apart, at the fall-back.
+
+    A minute list or step (``8,23,38,53``, ``*/15``) keeps its earliest
+    minute, and a leading seconds field is dropped. Hour, day, month, and
+    weekday stay, so the cap never changes the hours or days a schedule runs
+    on. An expression that already waits at least an hour is unchanged,
+    including its whitespace collapsed to single spaces.
     """
     normalized = _normalized_cron(cron)
     if not _fires_more_than_hourly(normalized, timezone):
@@ -172,11 +201,7 @@ def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     if len(parts) == CRON_FIELD_COUNT_WITH_SECONDS:
         parts = parts[1:]
     parts[0] = _earliest_field_value(parts[0], 59)
-    capped = " ".join(parts)
-    if _fires_more_than_hourly(capped, timezone):
-        parts[1] = _earliest_field_value(parts[1], 23)
-        capped = " ".join(parts)
-    return capped
+    return " ".join(parts)
 
 
 __all__ = [
