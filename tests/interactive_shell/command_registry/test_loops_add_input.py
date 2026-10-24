@@ -341,3 +341,57 @@ def test_agent_selected_incomplete_add_is_deferred(monkeypatch: pytest.MonkeyPat
     )
     assert isinstance(result, dict) and QUEUED_COMMAND_KEY in result
     assert not dispatched
+
+
+def test_a_cron_that_can_never_fire_is_refused_and_nothing_is_created(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "tasks.json"
+    monkeypatch.setattr(task_store, "default_task_store_path", lambda: store)
+    reloads: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(loops_cmds, "_reload_loop_scheduler", lambda *args: reloads.append(args))
+
+    def unexpected(_app: Any) -> None:
+        raise AssertionError("A complete command must execute directly")
+
+    monkeypatch.setattr(loops_cmds, "run_command_input", unexpected)
+
+    output = " ".join(
+        _dispatch(
+            '/loops add --name NeverFire --cron "0 8 31 2 *" '
+            '--prompt "Impossible date audit" --channel interactive_shell'
+        ).split()
+    )
+
+    assert "could not add loop: this cron schedule has no possible future execution time" in output
+    assert "loop created" not in output
+    assert not reloads
+    assert not list_tasks(store)
+
+
+def test_the_add_form_flags_a_cron_that_can_never_fire_on_the_schedule_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from surfaces.shared.terminal.components.input_form import InputFormError
+
+    form: dict[str, Any] = {}
+
+    def capture_form(values: dict[str, str], **kwargs: Any) -> None:
+        form.update(values=values, validate=kwargs["validate"])
+
+    monkeypatch.setattr("surfaces.interactive_shell.ui.loop_input.build_input_form", capture_form)
+    build_loop_form(
+        LoopInput(
+            name="NeverFire",
+            prompt="Impossible date audit",
+            cron="0 8 31 2 *",
+            channels=["interactive_shell"],
+        )
+    )
+
+    with pytest.raises(InputFormError) as refused:
+        form["validate"](form["values"])
+
+    assert refused.value.field == "schedule"
+    assert "this cron schedule has no possible future execution time" in str(refused.value)

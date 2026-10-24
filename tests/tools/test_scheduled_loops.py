@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -335,3 +336,40 @@ def test_the_tool_is_registered_as_a_read_only_action_tool() -> None:
     # Assert
     assert tool.side_effect_level == "read_only"
     assert set(tool.input_schema["properties"]) == {"include_disabled"}
+
+
+def test_a_stored_loop_that_can_never_fire_is_not_running_and_not_counted_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
+    from infrastructure.scheduling.scheduler.storage import add_task, database, task_store
+
+    store = tmp_path / "tasks.json"
+    monkeypatch.setattr(task_store, "default_task_store_path", lambda: store)
+    monkeypatch.setattr(database, "default_run_database_path", lambda: tmp_path / "runs.db")
+    for task_id, name, cron in (
+        ("daily", "Daily report", "0 9 * * *"),
+        ("neverfire", "NeverFire", "0 8 31 2 *"),
+    ):
+        add_task(
+            ScheduledTask(
+                id=task_id,
+                name=name,
+                kind=TaskKind.MANUAL_LOOP,
+                cron=cron,
+                provider=Provider.INTERACTIVE_SHELL,
+                params={LOOP_PROMPT_PARAM: f"{name}."},
+            ),
+            store,
+        )
+
+    listed = list_scheduled_loops()
+
+    never_fires = next(row for row in listed["loops"] if row["id"] == "neverfire")
+    assert never_fires["health"].startswith("not running:")
+    assert "this cron schedule has no possible future execution time" in never_fires["health"]
+    assert never_fires["needs_attention"] is True
+    assert never_fires["status"] != "active"
+    assert listed["response_text"].splitlines()[0] == (
+        "2 scheduled loops, 1 active, 1 needs attention."
+    )

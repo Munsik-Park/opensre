@@ -39,6 +39,31 @@ def test_schedule_checkin_accepts_7_as_crontab_sunday(
     assert [task.cron for task in list_tasks(scheduler_file)] == ["0 9 * * 7"]
 
 
+def test_schedule_checkin_refuses_a_cron_that_can_never_fire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scheduler_file = tmp_path / "scheduler_tasks.json"
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.storage.task_store.default_task_store_path",
+        lambda: scheduler_file,
+    )
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.reload_signal.request_scheduler_reload",
+        lambda: None,
+    )
+
+    result = CliRunner().invoke(
+        work_command,
+        ["schedule-checkin", "--cron", "0 8 31 2 *", "--provider", "slack", "--chat-id", "C12345"],
+    )
+
+    assert result.exit_code != 0
+    assert "this cron schedule has no possible future execution time" in " ".join(
+        result.output.split()
+    )
+    assert list_tasks(scheduler_file) == []
+
+
 def test_work_add_does_not_persist_when_reminder_has_no_delivery_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1175,3 +1175,100 @@ def test_real_scheduler_runs_a_missed_tick_under_its_own_fire_time(
     assert [(run.fire_time, run.attempt, run.status) for run in runs] == [
         (_compute_fire_time(missed), 1, TaskStatus.SUCCESS)
     ]
+
+
+def _isolated_task_and_run_stores(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from infrastructure.scheduling.scheduler.storage import database
+    from infrastructure.scheduling.scheduler.storage import task_store as scheduler_store
+
+    store_path = tmp_path / "tasks.json"
+    monkeypatch.setattr(scheduler_store, "default_task_store_path", lambda: store_path)
+    monkeypatch.setattr(database, "default_run_database_path", lambda: tmp_path / "runs.db")
+    return store_path
+
+
+def test_a_schedule_that_can_never_fire_is_neither_registered_nor_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from infrastructure.scheduling.scheduler.storage.task_store import add_task, remove_task
+
+    store_path = _isolated_task_and_run_stores(tmp_path, monkeypatch)
+    for task in (
+        ScheduledTask(
+            id="daily-loop",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 9 * * *",
+            provider=Provider.INTERACTIVE_SHELL,
+            params={LOOP_PROMPT_PARAM: "Daily report"},
+        ),
+        ScheduledTask(
+            id="never-loop",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 31 2 *",
+            provider=Provider.INTERACTIVE_SHELL,
+            params={LOOP_PROMPT_PARAM: "Impossible date audit"},
+        ),
+        ScheduledTask(
+            id="never-digest",
+            kind=TaskKind.SENTRY_MORNING_DIGEST,
+            cron="0 8 31 2 *",
+            provider=Provider.TELEGRAM,
+            chat_id="-100200300",
+        ),
+    ):
+        add_task(task, store_path)
+
+    scheduler, count = scheduler_runner.start_background_scheduler(real_runners())
+    try:
+        assert count == 1
+        assert scheduler is not None
+        assert scheduler.get_job("daily-loop") is not None
+        assert scheduler.get_job("never-loop") is None
+        assert scheduler.get_job("never-digest") is None
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+
+    assert remove_task("daily-loop", store_path)
+    idle_scheduler, idle_count = scheduler_runner.start_background_scheduler(real_runners())
+    if idle_scheduler is not None:
+        idle_scheduler.shutdown(wait=False)
+    assert (idle_scheduler, idle_count) == (None, 0)
+
+
+def test_a_one_shot_reminder_whose_time_has_passed_still_reads_active_and_registers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from config.constants.work_items import WORK_ITEM_REMINDER_RUN_AT_PARAM
+    from infrastructure.scheduling.scheduler.loops import summarize_loops
+    from infrastructure.scheduling.scheduler.storage.task_store import add_task, list_tasks
+
+    class _FakeScheduler:
+        def __init__(self) -> None:
+            self.job_ids: list[str] = []
+
+        def add_job(self, *args: object, **kwargs: object) -> None:
+            _ = args
+            self.job_ids.append(str(kwargs["id"]))
+
+    store_path = _isolated_task_and_run_stores(tmp_path, monkeypatch)
+    passed = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    add_task(
+        ScheduledTask(
+            id="due-reminder",
+            kind=TaskKind.WORK_ITEM_REMINDER,
+            cron="",
+            provider=Provider.SLACK,
+            chat_id="C123",
+            params={WORK_ITEM_REMINDER_RUN_AT_PARAM: passed, "work_item_id": "work-1"},
+        ),
+        store_path,
+    )
+
+    [summary] = summarize_loops(list_tasks(store_path))
+    scheduler = _FakeScheduler()
+
+    assert summary.schedule_error == ""
+    assert summary.status == "active"
+    assert _register_jobs(scheduler, real_runners()) == 1
+    assert scheduler.job_ids == ["due-reminder"]

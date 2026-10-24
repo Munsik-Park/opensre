@@ -848,3 +848,52 @@ def test_a_report_too_large_for_one_request_sends_fewer_newest_runs(
     assert 0 < len(started) < 10
     assert started == [f"2026-10-18T{hour:02d}:00:00Z" for hour in range(9, 9 - len(started), -1)]
     assert len(json.dumps(webapp.reports[0]).encode()) <= 3_000
+
+
+def _stored_never_firing_loop(task_id: str, *, enabled: bool) -> ScheduledTask:
+    with _org_scope():
+        return add_task(
+            ScheduledTask(
+                id=task_id,
+                name="NeverFire",
+                kind=TaskKind.MANUAL_LOOP,
+                cron="0 8 31 2 *",
+                provider=Provider.INTERACTIVE_SHELL,
+                enabled=enabled,
+                params={LOOP_PROMPT_PARAM: "Impossible date audit."},
+            )
+        )
+
+
+def test_resuming_a_loop_that_can_never_fire_is_refused_and_it_stays_stopped() -> None:
+    stopped = _stored_never_firing_loop("neverfire-off", enabled=False)
+    webapp = _Webapp(
+        pending=[
+            {
+                "id": _REQUEST_ID,
+                "action": "resume",
+                "loop_id": stopped.id,
+                "requested_by": "user_2abc",
+            }
+        ]
+    )
+
+    _sync(webapp).sync()
+
+    [(_, ack)] = webapp.acks
+    assert ack["status"] == "failed"
+    assert "this cron schedule has no possible future execution time" in ack["error"]
+    stored = get_task(stopped.id)
+    assert stored is not None and not stored.enabled
+
+
+def test_a_stored_loop_that_can_never_fire_is_mirrored_paused_with_its_reason() -> None:
+    enabled = _stored_never_firing_loop("neverfire-on", enabled=True)
+    webapp = _Webapp()
+
+    _sync(webapp).report(force=True)
+
+    [row] = webapp.reports[0]
+    assert row["id"] == enabled.id
+    assert row["status"] == "paused"
+    assert "this cron schedule has no possible future execution time" in row["schedule_error"]

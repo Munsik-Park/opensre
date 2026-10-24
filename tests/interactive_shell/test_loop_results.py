@@ -12,11 +12,13 @@ from zoneinfo import ZoneInfo
 import pytest
 from rich.console import Console
 
+from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
 from infrastructure.scheduling.scheduler.loops import LoopSummary, summarize_loop
 from infrastructure.scheduling.scheduler.storage import (
     add_task,
     complete_run,
     get_runs,
+    get_task,
     record_run_report,
     try_claim,
 )
@@ -342,3 +344,81 @@ def test_loop_description_is_a_spaced_preview_with_full_details(
     output.truncate()
     render_loop_details(console, loop, [], None)
     assert description in " ".join(output.getvalue().split())
+
+
+_NEVER_FIRES = "this cron schedule has no possible future execution time"
+
+
+def _stored_never_firing_loop(task_id: str, name: str, *, enabled: bool) -> ScheduledTask:
+    return add_task(
+        ScheduledTask(
+            id=task_id,
+            name=name,
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 31 2 *",
+            provider=Provider.INTERACTIVE_SHELL,
+            enabled=enabled,
+            params={LOOP_PROMPT_PARAM: f"Impossible date audit: {name}"},
+        )
+    )
+
+
+def _command_text(args: list[str]) -> str:
+    output = io.StringIO()
+    loops_cmds._cmd_loops(Session(), Console(file=output, width=100, color_system=None), args)
+    return " ".join(output.getvalue().split())
+
+
+@pytest.mark.usefixtures("loop_stores")
+def test_starting_a_stored_loop_that_can_never_fire_is_refused_and_it_stays_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stored_never_firing_loop("neverfire-off", "NeverFire", enabled=False)
+    reloads: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(loops_cmds, "_reload_loop_scheduler", lambda *args: reloads.append(args))
+
+    text = _command_text(["start", "neverfire-off"])
+
+    assert _NEVER_FIRES in text
+    assert "loop started" not in text
+    assert not reloads
+    stored = get_task("neverfire-off")
+    assert stored is not None and stored.enabled is False
+
+
+@pytest.mark.usefixtures("loop_stores")
+def test_loop_lists_warn_about_a_loop_that_can_never_fire_and_never_show_it_active() -> None:
+    add_task(
+        ScheduledTask(
+            id="daily-ops",
+            name="Morning ops",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 * * *",
+            provider=Provider.INTERACTIVE_SHELL,
+            params={LOOP_PROMPT_PARAM: "Check open incidents"},
+        )
+    )
+    _stored_never_firing_loop("neverfire-on", "NeverFire", enabled=True)
+    _stored_never_firing_loop("neverfire-off", "NeverFire stopped", enabled=False)
+
+    every_loop = _command_text([])
+    active_loops = _command_text(["active"])
+
+    assert every_loop.count(f"Not running: {_NEVER_FIRES}") == 2
+    assert every_loop.count("Active") == 1
+    assert "ID: daily-ops" in active_loops
+    assert "ID: neverfire-on" not in active_loops
+    assert f"not running: NeverFire — {_NEVER_FIRES}" in active_loops
+
+
+@pytest.mark.usefixtures("loop_stores")
+def test_loop_details_warn_about_a_loop_that_can_never_fire_and_never_show_it_active() -> None:
+    _stored_never_firing_loop("neverfire-on", "NeverFire", enabled=True)
+
+    next_run = _command_text(["next", "neverfire-on"])
+    details = _command_text(["show", "neverfire-on"])
+
+    assert _NEVER_FIRES in next_run
+    assert "status: active" not in next_run
+    assert _NEVER_FIRES in details
+    assert "Status: Active" not in details

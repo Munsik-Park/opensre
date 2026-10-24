@@ -487,3 +487,35 @@ def test_noninteractive_missing_edit_inputs_never_open_forms(
     for module in (goal_command, work_command, loop_command):
         monkeypatch.setattr(module, "run_command_input", unexpected)
     _dispatch(command, tty=False)
+
+
+def test_the_loop_edit_form_flags_a_cron_that_can_never_fire_on_the_schedule_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from infrastructure.scheduling.scheduler.loops import summarize_loop
+    from surfaces.shared.terminal.components.input_form import InputFormError
+
+    form: dict[str, Any] = {}
+
+    def capture_form(values: dict[str, str], **kwargs: Any) -> None:
+        form.update(values=values, validate=kwargs["validate"])
+
+    monkeypatch.setattr(
+        "surfaces.interactive_shell.ui.loop_edit_input.build_input_form", capture_form
+    )
+    loop = summarize_loop(
+        ScheduledTask(
+            name="Prompt loop",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 * * *",
+            provider=Provider.INTERACTIVE_SHELL,
+            params={LOOP_PROMPT_PARAM: "Review failures"},
+        )
+    )
+    build_loop_edit_form(loop, prompt_editable=True, options={"cron": "0 8 31 2 *"})
+
+    with pytest.raises(InputFormError) as refused:
+        form["validate"](form["values"])
+
+    assert refused.value.field == "schedule"
+    assert "this cron schedule has no possible future execution time" in str(refused.value)
