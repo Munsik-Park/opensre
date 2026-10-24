@@ -211,7 +211,7 @@ Standard 5-field cron expressions:
 ┌───────────── minute (0-59)
 │ ┌───────────── hour (0-23)
 │ │ ┌───────────── day of month (1-31)
-│ │ │ ┌───────────── month (1-12)
+│ │ │ ┌───────────── month (1-12, or jan–dec)
 │ │ │ │ ┌───────────── day of week (0-7, Sunday is 0 or 7; or mon–sun)
 │ │ │ │ │
 * * * * *
@@ -221,6 +221,14 @@ Standard 5-field cron expressions:
 `1` is Monday and `6` is Saturday, so `1-5` runs Monday to Friday. Day names
 such as `mon-fri` work too.
 
+Month names (`jan`–`dec`) work the same way in the month field. In both fields
+a name can stand alone or at either end of a range, and a step after it counts
+as it does after the number; the step itself is always a number: `mon-fri/2` runs Monday, Wednesday and Friday, `sun-sat/2`
+runs Sunday, Tuesday, Thursday and Saturday, `mon-5` runs Monday to Friday, and
+`jan-dec/3` runs in January, April, July and October. Write the three-letter
+name: a full name such as `monday`, or text after a name that is not a range
+or a step, such as `mon-fri/x`, is rejected when you add the schedule.
+
 Earlier versions counted weekdays from `0` = Monday, so a loop saved with a
 numeric weekday now runs one day earlier than before: `1-5` moves from
 Tuesday–Saturday to Monday–Friday. If you wrote numbers for the old counting on
@@ -229,6 +237,13 @@ To keep its old days, record its settings, stop it with `/loops stop <loop_id>`,
 recreate it through the original scheduling command with day names, such as
 `--cron "0 9 * * mon"`, and delete the old loop with `/loops delete <loop_id>`
 once the replacement is verified.
+
+Earlier versions also ignored a step or a number written after a name, so a
+loop saved as `mon-fri/2` ran every weekday and now runs Monday, Wednesday and
+Friday. A saved loop whose schedule is now rejected, such as `mon-fri/0` or
+`jan-dec/12`, stops running and shows `Invalid schedule` in `/loops`; recreate
+it with a schedule that is accepted and delete the old loop with
+`/loops delete <loop_id>`.
 
 Examples:
 
