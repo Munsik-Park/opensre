@@ -41,6 +41,7 @@ _TELEGRAM_HTML_TAG_NAMES = frozenset(
         "blockquote",
     }
 )
+_MAX_TAG_NAME_LEN = max(len(name) for name in _TELEGRAM_HTML_TAG_NAMES)
 # Telegram's parser ends a tag name at these only; ``str.isspace`` also matches
 # ``\f`` and Unicode spaces, which Telegram reads as part of the name.
 _TELEGRAM_HTML_SPACE = frozenset(" \t\r\n\v\0")
@@ -59,7 +60,13 @@ class _HtmlTag:
 
 
 def _tag_name_end(text: str, pos: int) -> int:
-    while pos < len(text) and text[pos] not in _TELEGRAM_HTML_SPACE and text[pos] != ">":
+    """Return the end of the tag name at *pos*.
+
+    Stops one character past the longest supported name: a longer run is no supported
+    name, and scanning it in full makes a long run of ``<`` quadratic.
+    """
+    stop = min(len(text), pos + _MAX_TAG_NAME_LEN + 1)
+    while pos < stop and text[pos] not in _TELEGRAM_HTML_SPACE and text[pos] != ">":
         pos += 1
     return pos
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -375,6 +376,15 @@ def test_truncate_for_telegram_html_drops_tag_cut_inside_quoted_gt() -> None:
     max_len = len(prefix) + len('<a href="https://example.com/?q=a>bcdefg') + 1
     out = truncate_for_telegram_html(src, max_len, suffix="…")
     assert out == prefix + "…"
+
+
+def test_truncate_for_telegram_html_linear_on_long_non_tag_lt_run() -> None:
+    src = "<b>Alert</b> <blockquotex> payload: " + ("<" * 20000)
+    start = time.perf_counter()
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    elapsed = time.perf_counter() - start
+    assert out == src[:4095] + "…"
+    assert elapsed < 1.0, f"truncation took {elapsed:.2f}s on a long run of '<'"
 
 
 # ---------------------------------------------------------------------------
