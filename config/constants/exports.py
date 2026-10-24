@@ -523,6 +523,7 @@ EXPORTS: dict[str, str] = {
     "RUNBOOK_MANIFEST_MAX_CHARS": "runbooks",
     # scheduler
     "WEEKDAY_CRON_FIELD": "scheduler",
+    "CRON_NEVER_FIRES_ERROR": "scheduler",
     "NON_RETRYABLE_WORK_ERROR_KINDS": "scheduler",
     "OPENSRE_GATEWAY_HOST_SCHEDULER_ENV": "scheduler",
     "OPENSRE_SCHEDULER_BUILD_ENV": "scheduler",

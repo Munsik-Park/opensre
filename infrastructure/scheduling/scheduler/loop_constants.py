@@ -31,6 +31,8 @@ LOOP_MODES = (LOOP_MODE_REPORT, LOOP_MODE_AGENT)
 LOOP_STATUS_ACTIVE = "active"
 LOOP_STATUS_PAUSED = "paused"
 LOOP_STATUS_DRAFT = "draft"
+LOOP_STATUS_INVALID = "invalid"
+"""Switched on, but the scheduler refuses its schedule, so it does not run."""
 
 LOOP_PRIVATE_PARAM = "loop_private"
 """``"true"`` when the loop is its creator's own: it runs as them and only they see or change it."""
@@ -86,6 +88,7 @@ __all__ = [
     "LOOP_STATELESS_PARAM",
     "LOOP_STATUS_ACTIVE",
     "LOOP_STATUS_DRAFT",
+    "LOOP_STATUS_INVALID",
     "LOOP_STATUS_PAUSED",
     "LOOP_TELEGRAM_CHAT_ID_PARAM",
     "LOOP_TEMPLATE_PARAM",

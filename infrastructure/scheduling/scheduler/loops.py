@@ -20,7 +20,10 @@ from infrastructure.scheduling.scheduler.credentials import (
     resolve_telegram_credentials,
     resolve_telegram_default_chat_id,
 )
-from infrastructure.scheduling.scheduler.cron_expression import cap_cron_at_most_hourly
+from infrastructure.scheduling.scheduler.cron_expression import (
+    CronNeverFiresError,
+    cap_cron_at_most_hourly,
+)
 from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_CHANNELS_PARAM,
     LOOP_CREATED_BY_PARAM,
@@ -43,6 +46,7 @@ from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_SOURCE_PARAM,
     LOOP_STATUS_ACTIVE,
     LOOP_STATUS_DRAFT,
+    LOOP_STATUS_INVALID,
     LOOP_STATUS_PAUSED,
     LOOP_TELEGRAM_CHAT_ID_PARAM,
     LOOP_TIME_PARAM,
@@ -139,12 +143,19 @@ class LoopSummary:
     owner: str = ""
     #: The owner's own loop: it runs as them and only they see or change it.
     private: bool = False
+    #: False when the scheduler refuses an enabled task's schedule, so that task never runs.
+    schedulable: bool = True
+    #: A task's cron is well formed but its dates never occur, so it has no run time.
+    never_fires: bool = False
 
     @property
     def status(self) -> str:
-        """Active while enabled; a disabled loop that has run is paused, one that never ran a draft."""
+        """Active while enabled and schedulable, else invalid.
+
+        A disabled loop that has run is paused, one that never ran a draft.
+        """
         if self.enabled:
-            return LOOP_STATUS_ACTIVE
+            return LOOP_STATUS_ACTIVE if self.schedulable else LOOP_STATUS_INVALID
         return LOOP_STATUS_PAUSED if self.last_run else LOOP_STATUS_DRAFT
 
     @property
@@ -711,11 +722,15 @@ def _summarize_group(
         for task in tasks
         if (notice := task.params.get(LOOP_MIGRATION_NOTICE_PARAM, "").strip())
     ]
+    schedulable = True
+    never_fires = False
     for task in tasks:
         try:
             computed_next_run = compute_next_run(task, now)
         except ValueError as exc:
             schedule_errors.append(str(exc))
+            schedulable = schedulable and not task.enabled
+            never_fires = never_fires or isinstance(exc, CronNeverFiresError)
         else:
             if computed_next_run:
                 next_runs.append(computed_next_run)
@@ -749,6 +764,8 @@ def _summarize_group(
         mode=representative.params.get(LOOP_MODE_PARAM, "").strip() or LOOP_MODE_REPORT,
         owner=loop_owner(representative),
         private=loop_is_private(representative),
+        schedulable=schedulable,
+        never_fires=never_fires,
     )
 
 

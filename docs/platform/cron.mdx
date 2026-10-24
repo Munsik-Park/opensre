@@ -247,8 +247,12 @@ seconds field (`0-59`) to get a six-field expression:
 A tick that fires while the previous tick of the same task is still running is
 skipped, so a slow tick never overlaps with the next one.
 
-Cron expressions are validated at `cron add` time using APScheduler's
-`CronTrigger`. Invalid expressions are rejected immediately.
+Cron expressions are validated when a schedule is created, edited or started
+again. An invalid expression is rejected immediately, and so is one whose dates
+never occur, such as `0 8 31 2 *` (31 February): it has no possible future
+execution time. A stored loop with such a schedule is listed as **Invalid** with
+that reason and is not counted as running; change its schedule with
+`/loops edit`, or stop or delete it.
 
 ## Timezone Behavior
 

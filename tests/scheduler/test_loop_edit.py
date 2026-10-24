@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from config.principal import Actor, Principal, StorageScope
 from config.scope_context import bound_storage_scope
 from infrastructure.scheduling.scheduler.loop_constants import (
@@ -14,7 +16,7 @@ from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_TEMPLATE_PARAM,
 )
 from infrastructure.scheduling.scheduler.loop_edit import edit_loop
-from infrastructure.scheduling.scheduler.loops import list_loop_summaries
+from infrastructure.scheduling.scheduler.loops import list_loop_summaries, set_loop_enabled
 from infrastructure.scheduling.scheduler.storage import add_task, get_task
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 
@@ -205,3 +207,52 @@ def test_edit_normalizes_selected_legacy_kind_only_after_submission(tmp_path: Pa
     [saved] = json.loads(store.read_text(encoding="utf-8"))
     assert saved["kind"] == TaskKind.MANUAL_LOOP.value and saved["name"] == "Renamed"
     assert saved["params"] == legacy["params"]
+
+
+def _stored_daily_loop(store: Path, task_id: str, *, cron: str, enabled: bool) -> ScheduledTask:
+    return add_task(
+        ScheduledTask(
+            id=task_id,
+            name=task_id,
+            kind=TaskKind.MANUAL_LOOP,
+            cron=cron,
+            provider=Provider.INTERACTIVE_SHELL,
+            enabled=enabled,
+            params={LOOP_PROMPT_PARAM: f"Daily report for {task_id}."},
+        ),
+        store,
+    )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_a_cron_edit_that_can_never_fire_is_refused_and_changes_nothing(
+    tmp_path: Path, enabled: bool
+) -> None:
+    store = tmp_path / "scheduler_tasks.json"
+    task = _stored_daily_loop(store, "daily-loop", cron="0 9 * * *", enabled=enabled)
+
+    result, error = edit_loop((task.id,), {"cron": "0 8 31 2 *"}, loop_id=task.id, store_path=store)
+
+    assert result is None
+    assert "this cron schedule has no possible future execution time" in error
+    saved = get_task(task.id, store)
+    assert saved is not None and saved.model_dump() == task.model_dump()
+
+
+def test_a_stored_loop_that_can_never_fire_can_still_be_fixed_or_stopped(tmp_path: Path) -> None:
+    store = tmp_path / "scheduler_tasks.json"
+    to_fix = _stored_daily_loop(store, "fix-me", cron="0 8 31 2 *", enabled=True)
+    to_stop = _stored_daily_loop(store, "stop-me", cron="0 8 31 2 *", enabled=True)
+
+    fixed, fix_error = edit_loop(
+        (to_fix.id,), {"cron": "0 9 * * *"}, loop_id=to_fix.id, store_path=store
+    )
+    stopped, stop_error = set_loop_enabled(to_stop.id, enabled=False, store_path=store)
+
+    assert fixed is not None and not fix_error
+    saved_fix = get_task(to_fix.id, store)
+    assert saved_fix is not None and saved_fix.cron == "0 9 * * *"
+    assert saved_fix.next_run is not None
+    assert stopped is not None and not stop_error
+    saved_stop = get_task(to_stop.id, store)
+    assert saved_stop is not None and not saved_stop.enabled

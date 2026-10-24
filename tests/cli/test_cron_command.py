@@ -1232,3 +1232,76 @@ def test_cron_add_rejects_conflicting_template_use(extra: list[str], message: st
 
     assert result.exit_code != 0
     assert message in result.output
+
+
+def test_cron_add_refuses_a_cron_that_can_never_fire_and_stores_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from infrastructure.scheduling.scheduler.storage import task_store as scheduler_store
+    from infrastructure.scheduling.scheduler.storage.task_store import list_tasks
+
+    store = tmp_path / "scheduler_tasks.json"
+    monkeypatch.setattr(scheduler_store, "default_task_store_path", lambda: store)
+
+    result = CliRunner().invoke(
+        cron_module.cron_command,
+        [
+            "add",
+            "--name",
+            "NeverFire",
+            "--kind",
+            "manual_loop",
+            "--cron",
+            "0 8 31 2 *",
+            "--prompt",
+            "Impossible date audit.",
+            "--provider",
+            "interactive_shell",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "this cron schedule has no possible future execution time" in " ".join(
+        result.output.split()
+    )
+    assert list_tasks(store) == []
+
+
+def test_cron_list_warns_about_a_stored_loop_that_can_never_fire_and_never_shows_it_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
+    from infrastructure.scheduling.scheduler.storage import database
+    from infrastructure.scheduling.scheduler.storage import task_store as scheduler_store
+    from infrastructure.scheduling.scheduler.storage.task_store import add_task
+    from infrastructure.scheduling.scheduler.types import ScheduledTask
+
+    store = tmp_path / "scheduler_tasks.json"
+    monkeypatch.setattr(scheduler_store, "default_task_store_path", lambda: store)
+    monkeypatch.setattr(database, "default_run_database_path", lambda: tmp_path / "runs.db")
+    add_task(
+        ScheduledTask(
+            id="neverfire0001",
+            name="NeverFire",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 31 2 *",
+            provider=Provider.INTERACTIVE_SHELL,
+            params={LOOP_PROMPT_PARAM: "Impossible date audit."},
+        ),
+        store,
+    )
+    monkeypatch.setattr(cron_module, "_console", Console(width=100, force_terminal=False))
+
+    table = CliRunner().invoke(cron_module.cron_command, ["list"])
+    monkeypatch.setattr(cron_module, "is_json_output", lambda: True)
+    listed = CliRunner().invoke(cron_module.cron_command, ["list"])
+
+    assert table.exit_code == 0, table.output
+    output = " ".join(table.output.split())
+    assert "Not running: this cron schedule has no possible future execution time" in output
+    assert "Active" not in output
+    assert listed.exit_code == 0, listed.output
+    [entry] = json.loads(listed.output)
+    assert entry["status"] == "invalid"
+    assert "this cron schedule has no possible future execution time" in entry["schedule_error"]
+    assert entry["enabled"] is True

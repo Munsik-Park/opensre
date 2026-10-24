@@ -61,3 +61,24 @@ def test_the_stored_next_run_skips_the_weekend() -> None:
 
     # Assert: Monday, not Saturday
     assert next_run == "2026-10-12T08:00:00+00:00"
+
+
+@pytest.mark.parametrize("cron", ["0 8 31 2 *", "0 8 31 2 mon", "0 0 8 31 2 *"])
+def test_a_schedule_that_can_never_fire_is_rejected_before_it_is_stored(cron: str) -> None:
+    with pytest.raises(
+        ValueError, match="this cron schedule has no possible future execution time"
+    ):
+        build_cron_trigger(cron, "UTC")
+
+
+@pytest.mark.parametrize(
+    ("cron", "first_fire"),
+    [
+        ("0 8 29 2 *", datetime(2028, 2, 29, 8, 0, tzinfo=UTC)),
+        ("0 0 29 2 mon", datetime(2044, 2, 29, 0, 0, tzinfo=UTC)),
+    ],
+)
+def test_a_rare_but_possible_schedule_still_builds(cron: str, first_fire: datetime) -> None:
+    trigger = build_cron_trigger(cron, "UTC")
+
+    assert trigger.get_next_fire_time(None, _SUNDAY_NOON) == first_fire

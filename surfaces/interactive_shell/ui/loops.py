@@ -7,10 +7,12 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, tzinfo
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.text import Text
 
+from config.constants.scheduler import CRON_NEVER_FIRES_ERROR
 from infrastructure.scheduling.scheduler.local_delivery import LocalLoopMessage
-from infrastructure.scheduling.scheduler.loop_constants import LOOP_MODE_REPORT
+from infrastructure.scheduling.scheduler.loop_constants import LOOP_MODE_REPORT, LOOP_STATUS_ACTIVE
 from infrastructure.scheduling.scheduler.loops import LoopSummary
 from infrastructure.scheduling.scheduler.types import TaskRun, TaskStatus
 from infrastructure.terminal.markdown import ReplyMarkdown, UnpaddedRows
@@ -22,7 +24,7 @@ from surfaces.shared.terminal.components.rendering import (
 from surfaces.shared.terminal.components.time_format import format_repl_timestamp
 from surfaces.shared.terminal.tables.descriptions import description_details
 from surfaces.shared.terminal.tables.records import RecordColumn, RecordRow, RecordTable
-from surfaces.shared.terminal.tables.schedules import schedule_channels
+from surfaces.shared.terminal.tables.schedules import never_fires_warning, schedule_channels
 
 
 def _timestamp(value: str | None) -> datetime | None:
@@ -127,7 +129,8 @@ def render_loops(
     for loop in loops:
         state = "Invalid" if loop.schedule_error else "Active" if loop.enabled else "Paused"
         state_style = WARNING if loop.schedule_error else HIGHLIGHT if loop.enabled else DIM
-        details: list[Text] = []
+        warning = never_fires_warning(loop)
+        details: list[Text] = [] if warning is None else [warning]
         run = latest.get(loop.id)
         if run is None:
             details.append(
@@ -182,6 +185,19 @@ def render_loops(
         title="/loops list",
         browse=browse,
     )
+
+
+def render_not_running_loops(console: Console, loops: Sequence[LoopSummary]) -> None:
+    """Name each given loop that does not run, with its /loops show route; nothing for none."""
+    if not loops:
+        return
+    console.print()
+    for loop in loops:
+        reason = CRON_NEVER_FIRES_ERROR if loop.never_fires else "invalid schedule"
+        warning = Text.assemble(("not running:", str(WARNING)), f" {loop.name} — {reason}")
+        console.print(Padding(warning, (0, 2), expand=False))
+        hint = Text(f"/loops show {loop.id}", style=str(DIM))
+        console.print(Padding(hint, (0, 2, 0, 4), expand=False))
 
 
 def _exact_time(value: str | None) -> str:
@@ -250,9 +266,12 @@ def render_loop_details(
         )
 
     console.print(Text("Configuration", style=BOLD_BRAND))
+    status = (
+        "Active" if loop.status == LOOP_STATUS_ACTIVE else "Invalid" if loop.enabled else "Paused"
+    )
     rows = (
         ("ID", loop.id),
-        ("Status", "Active" if loop.enabled else "Paused"),
+        ("Status", status),
         ("Schedule", f"{loop.cron} ({loop.timezone})"),
         ("Next run", _exact_time(loop.next_run) if loop.enabled else "Paused"),
         ("Channels", ", ".join(channel.replace("_", " ") for channel in loop.channels)),
@@ -297,4 +316,9 @@ def render_loop_messages(console: Console, messages: Sequence[LocalLoopMessage])
     )
 
 
-__all__ = ["render_loop_details", "render_loop_messages", "render_loops"]
+__all__ = [
+    "render_loop_details",
+    "render_loop_messages",
+    "render_loops",
+    "render_not_running_loops",
+]

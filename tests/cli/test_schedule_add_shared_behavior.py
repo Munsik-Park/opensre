@@ -125,3 +125,23 @@ def test_unknown_timezone_is_refused(monkeypatch: pytest.MonkeyPatch, isolated_s
 
     assert result.exit_code == 1
     assert "invalid cron expression or timezone" in result.output
+
+
+def test_a_cron_that_can_never_fire_is_refused_and_nothing_is_stored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolated_store: None
+) -> None:
+    """A valid-looking expression whose date never occurs (31 February) is not stored."""
+    from infrastructure.scheduling.scheduler.storage import list_tasks
+
+    _allow_sentry(monkeypatch)
+
+    result = CliRunner().invoke(
+        sentry_command,
+        [*_SENTRY_ADD, "--cron", "0 8 31 2 *", *_DELIVERY_ARGS],
+    )
+
+    assert result.exit_code == 1
+    assert "this cron schedule has no possible future execution time" in " ".join(
+        result.output.split()
+    )
+    assert list_tasks(tmp_path / "tasks.json") == []

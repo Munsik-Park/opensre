@@ -40,6 +40,8 @@ from config.scope_context import bound_storage_scope
 from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_CREATED_BY_PARAM,
     LOOP_MODE_REPORT,
+    LOOP_STATUS_INVALID,
+    LOOP_STATUS_PAUSED,
     LOOP_WEBAPP_CREATOR,
     LOOP_WEBAPP_REQUEST_ID_PARAM,
 )
@@ -558,7 +560,7 @@ def _loop_row(loop: LoopSummary, tasks: Sequence[ScheduledTask]) -> dict[str, An
         "cron": loop.cron,
         "timezone": loop.timezone,
         "channels": list(loop.channels),
-        "status": loop.status,
+        "status": LOOP_STATUS_PAUSED if loop.status == LOOP_STATUS_INVALID else loop.status,
         "schedule_error": loop.schedule_error,
         "last_run": loop.last_run,
         "next_run": loop.next_run,
