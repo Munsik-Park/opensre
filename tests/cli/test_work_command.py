@@ -69,3 +69,30 @@ def test_work_list_omits_store_footer_but_path_remains_available(
     path = runner.invoke(work_command, ["path"])
     assert path.exit_code == 0
     assert str(tmp_path / "work_items") in path.output.replace("\n", "")
+
+
+def test_schedule_checkin_refuses_a_schedule_that_can_never_fire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """February 31 never occurs; a check-in on it would be stored and never run."""
+    # Arrange
+    scheduler_file = tmp_path / "scheduler_tasks.json"
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.storage.task_store.default_task_store_path",
+        lambda: scheduler_file,
+    )
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.reload_signal.request_scheduler_reload",
+        lambda: None,
+    )
+
+    # Act
+    result = CliRunner().invoke(
+        work_command,
+        ["schedule-checkin", "--cron", "0 8 31 2 *", "--provider", "slack", "--chat-id", "C12345"],
+    )
+
+    # Assert
+    assert result.exit_code != 0
+    assert "no possible future execution time" in " ".join(result.output.split())
+    assert list_tasks(scheduler_file) == []

@@ -23,9 +23,10 @@ from config.scope_context import bound_storage_scope
 from core.agent_harness.tools.tool_context import ActionToolScope
 from core.agent_harness.turns.headless_adapters import InMemorySessionState
 from infrastructure.scheduling.scheduler.delivery_plan import configured_target_keys
+from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
 from infrastructure.scheduling.scheduler.run_now import install_loop_run_starter
-from infrastructure.scheduling.scheduler.storage import get_task, list_tasks
-from infrastructure.scheduling.scheduler.types import Provider
+from infrastructure.scheduling.scheduler.storage import add_task, get_task, list_tasks
+from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from tools.system.scheduled_loops import manage
 
 
@@ -246,3 +247,31 @@ def test_a_member_runs_their_private_loop_now_and_nobody_else_can(
     assert "not found" in refused["error"]
     assert ran["ok"] is True, ran
     assert started == [created["loop_id"]]
+
+
+def test_a_loop_that_can_never_fire_is_refused_on_create_and_on_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: off chat, and a paused February-31 loop saved before the schedule check.
+    monkeypatch.setattr(manage, "_session", lambda _context: SimpleNamespace())
+    paused = add_task(
+        ScheduledTask(
+            name="NeverFire",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 31 2 *",
+            provider=Provider.INTERACTIVE_SHELL,
+            enabled=False,
+            params={LOOP_PROMPT_PARAM: "Impossible date audit"},
+        )
+    )
+
+    # Act
+    created = manage.schedule_prompt_loop(prompt="Impossible date audit", cron="0 8 31 2 *")
+    resumed = manage.stop_scheduled_loop(paused.id, action="resume")
+
+    # Assert: both refused with the reason; nothing new stored, the paused loop stays off.
+    assert created["ok"] is False and "no possible future execution time" in created["error"]
+    assert resumed["ok"] is False and "no possible future execution time" in resumed["error"]
+    assert [task.id for task in list_tasks()] == [paused.id]
+    stored = get_task(paused.id)
+    assert stored is not None and not stored.enabled

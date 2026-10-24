@@ -465,3 +465,27 @@ class TestMapWorkTaskPrioritize:
         )
         sources = [e["source"] for e in evidence["catalog_entries"]]
         assert sources == ["work_task_prioritize", "work_task_prioritize#2"]
+
+
+def test_schedule_checkin_refuses_a_schedule_that_can_never_fire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """February 31 never occurs; the model must be told instead of getting a dormant task."""
+    # Arrange
+    scheduler_file = tmp_path / "scheduler_tasks.json"
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.storage.task_store.default_task_store_path",
+        lambda: scheduler_file,
+    )
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.reload_signal.request_scheduler_reload",
+        lambda: None,
+    )
+
+    # Act
+    response = work_task_schedule_checkin(cron="0 8 31 2 *", provider="slack", chat_id="C12345")
+
+    # Assert
+    assert response.get("error") == "invalid_cron"
+    assert "no possible future execution time" in response["detail"]
+    assert list_tasks(scheduler_file) == []

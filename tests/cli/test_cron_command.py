@@ -1232,3 +1232,88 @@ def test_cron_add_rejects_conflicting_template_use(extra: list[str], message: st
 
     assert result.exit_code != 0
     assert message in result.output
+
+
+_NEVER_FIRES = "0 8 31 2 *"
+_NEVER_FIRES_REASON = "no possible future execution time"
+
+
+def _isolated_task_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from infrastructure.scheduling.scheduler.storage import task_store as scheduler_store
+
+    store = tmp_path / "scheduler_tasks.json"
+    monkeypatch.setattr(scheduler_store, "default_task_store_path", lambda: store)
+    return store
+
+
+def _store_never_firing_loop(store: Path) -> None:
+    """Written by the store layer, which accepts any schedule (a loop saved before the check)."""
+    from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM
+    from infrastructure.scheduling.scheduler.storage.task_store import add_task
+    from infrastructure.scheduling.scheduler.types import ScheduledTask
+
+    add_task(
+        ScheduledTask(
+            name="NeverFire",
+            kind=TaskKind.MANUAL_LOOP,
+            cron=_NEVER_FIRES,
+            provider=Provider.INTERACTIVE_SHELL,
+            params={LOOP_PROMPT_PARAM: "Impossible date audit"},
+        ),
+        store,
+    )
+
+
+def test_cron_add_refuses_a_schedule_that_can_never_fire(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from infrastructure.scheduling.scheduler.storage.task_store import list_tasks
+
+    store = _isolated_task_store(tmp_path, monkeypatch)
+
+    result = CliRunner().invoke(
+        cron_module.cron_command,
+        [
+            "add",
+            "--kind",
+            "github_pr_sweep",
+            "--cron",
+            _NEVER_FIRES,
+            "--provider",
+            "interactive_shell",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert _NEVER_FIRES_REASON in result.output
+    assert list_tasks(store) == []
+
+
+def test_cron_list_json_reports_a_never_firing_loop_as_invalid_with_its_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _store_never_firing_loop(_isolated_task_store(tmp_path, monkeypatch))
+    monkeypatch.setattr(runtime_flags, "_flags", runtime_flags.RuntimeFlags(json=True))
+
+    result = CliRunner().invoke(cron_module.cron_command, ["list"])
+
+    assert result.exit_code == 0, result.output
+    [row] = json.loads(result.output)
+    assert (row["status"], row["enabled"], row["next_run"]) == ("invalid", True, None)
+    assert _NEVER_FIRES_REASON in row["schedule_error"]
+
+
+def test_cron_list_marks_a_never_firing_loop_invalid_and_says_why(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _store_never_firing_loop(_isolated_task_store(tmp_path, monkeypatch))
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setattr(cron_module, "_console", Console(width=100, highlight=False))
+
+    result = CliRunner().invoke(cron_module.cron_command, ["list"])
+
+    assert result.exit_code == 0, result.output
+    output = " ".join(result.output.split())
+    assert "NeverFire" in output and "Invalid" in output and "Active" not in output
+    assert _NEVER_FIRES_REASON in output

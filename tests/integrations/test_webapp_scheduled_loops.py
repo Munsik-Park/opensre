@@ -848,3 +848,27 @@ def test_a_report_too_large_for_one_request_sends_fewer_newest_runs(
     assert 0 < len(started) < 10
     assert started == [f"2026-10-18T{hour:02d}:00:00Z" for hour in range(9, 9 - len(started), -1)]
     assert len(json.dumps(webapp.reports[0]).encode()) <= 3_000
+
+
+def test_a_loop_that_can_never_fire_is_reported_invalid_with_its_reason() -> None:
+    # Arrange: an enabled February-31 loop saved before the schedule check.
+    stored = add_task(
+        ScheduledTask(
+            name="NeverFire",
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 8 31 2 *",
+            provider=Provider.INTERACTIVE_SHELL,
+            organization=_ORG,
+            params={LOOP_PROMPT_PARAM: "Impossible date audit"},
+        )
+    )
+    webapp = _Webapp()
+
+    # Act
+    _sync(webapp).sync()
+
+    # Assert: the Tasks page is not told it is active, and is told why.
+    [row] = webapp.reports[-1]
+    assert row["id"] == stored.id
+    assert (row["status"], row["next_run"]) == ("invalid", None)
+    assert "no possible future execution time" in row["schedule_error"]
