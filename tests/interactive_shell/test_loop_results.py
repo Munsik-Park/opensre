@@ -295,7 +295,7 @@ def test_recent_runs_reflow_with_full_timestamp_and_bounded_findings(
 
 
 @pytest.mark.parametrize("width", [40, 160])
-def test_invalid_loop_keeps_recovery_guidance_in_details_only(
+def test_invalid_loop_lists_its_schedule_error_and_keeps_it_in_details(
     monkeypatch: pytest.MonkeyPatch, width: int
 ) -> None:
     from surfaces.interactive_shell.ui.loops import render_loop_details
@@ -310,7 +310,7 @@ def test_invalid_loop_keeps_recovery_guidance_in_details_only(
     listing = output.getvalue()
     assert "Invalid" in listing and "Paused" in listing
     assert "Requires action" not in listing
-    assert "daily_summary" not in listing
+    assert error in " ".join(listing.split())
     assert "/loops show <name-or-id>" in listing
 
     output.seek(0)

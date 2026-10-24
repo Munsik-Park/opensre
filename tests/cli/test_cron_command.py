@@ -327,7 +327,7 @@ def test_cron_list_surfaces_legacy_task_migration_status(
     assert result.exit_code == 0
     output = " ".join(result.output.split())
     assert "Invalid" in output and summary.id in output
-    assert "daily_summary retired" not in output
+    assert notice in output
     assert "opensre --json cron list" in output
     monkeypatch.setattr(cron_module, "is_json_output", lambda: True)
     diagnostic = CliRunner().invoke(cron_module.cron_command, ["list"])

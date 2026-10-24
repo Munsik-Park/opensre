@@ -60,7 +60,7 @@ def test_cron_list_reflows_without_losing_identifiers_or_schedule_errors(
     assert "Scheduled tasks" in result.output
     assert loop.id in result.output
     assert "[bold]" in result.output
-    assert "Mars/Olympus" not in result.output
+    assert invalid.schedule_error in " ".join(result.output.split())
     assert "Requires action" not in result.output
     assert "Invalid" in result.output
     assert cron_module._cron_task_json(invalid)["schedule_error"] == invalid.schedule_error
