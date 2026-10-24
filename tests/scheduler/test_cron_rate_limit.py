@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from config.constants.ci_repair import CI_REPAIR_CRON, CI_REPAIR_REPORT_BUILDER
+from infrastructure.scheduling.scheduler import cron_expression
 from infrastructure.scheduling.scheduler.cron_expression import cap_cron_at_most_hourly
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM, LOOP_REPORT_PARAM
 from infrastructure.scheduling.scheduler.loops import create_manual_loop
@@ -40,6 +42,62 @@ def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected
 )
 def test_hourly_or_slower_schedules_stay(cron: str) -> None:
     assert cap_cron_at_most_hourly(f"  {cron}  ", "UTC") == cron
+
+
+_NEW_YORK_BEFORE_FALL_BACK = datetime(2026, 10, 31, 12, tzinfo=UTC)
+_LORD_HOWE_BEFORE_FALL_BACK = datetime(2027, 4, 2, 12, tzinfo=UTC)
+_LORD_HOWE_BEFORE_SPRING_FORWARD = datetime(2027, 10, 1, 12, tzinfo=UTC)
+
+
+def _freeze_cron_clock(monkeypatch: pytest.MonkeyPatch, clock: datetime) -> None:
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            _ = tz
+            return clock
+
+    monkeypatch.setattr(cron_expression, "datetime", _FrozenDateTime)
+
+
+@pytest.mark.parametrize(
+    ("cron", "expected"),
+    [
+        ("0 * * * *", "0 * * * *"),
+        ("45 * * * *", "45 * * * *"),
+        ("0 1,13 * * *", "0 1,13 * * *"),
+        ("0 45 * * * *", "0 45 * * * *"),
+        ("0,30 * * * *", "0 * * * *"),
+        ("*/20 * * * *", "20 * * * *"),
+    ],
+)
+def test_one_hour_fall_back_caps_only_what_fires_more_than_hourly(
+    cron: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_cron_clock(monkeypatch, _NEW_YORK_BEFORE_FALL_BACK)
+
+    assert cap_cron_at_most_hourly(cron, "America/New_York") == expected
+
+
+@pytest.mark.parametrize(
+    "clock",
+    [_LORD_HOWE_BEFORE_FALL_BACK, _LORD_HOWE_BEFORE_SPRING_FORWARD],
+    ids=["fall-back", "spring-forward"],
+)
+@pytest.mark.parametrize(
+    ("cron", "expected"),
+    [
+        ("45 * * * *", "45 * * * *"),
+        ("0 45 * * * *", "0 45 * * * *"),
+        ("30,50 * * * *", "30 * * * *"),
+        ("30 1 * * *", "30 1 * * *"),
+    ],
+)
+def test_half_hour_dst_shift_does_not_count_as_firing_more_than_hourly(
+    cron: str, expected: str, clock: datetime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze_cron_clock(monkeypatch, clock)
+
+    assert cap_cron_at_most_hourly(cron, "Australia/Lord_Howe") == expected
 
 
 def test_create_manual_loop_stores_at_most_one_run_per_hour(tmp_path: Path) -> None:
