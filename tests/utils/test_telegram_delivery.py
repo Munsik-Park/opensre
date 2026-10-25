@@ -387,6 +387,14 @@ def test_truncate_for_telegram_html_linear_on_long_non_tag_lt_run() -> None:
     assert elapsed < 1.0, f"truncation took {elapsed:.2f}s on a long run of '<'"
 
 
+@pytest.mark.parametrize("ref", ["&amp;", "&#128512;"])
+def test_truncate_for_telegram_html_drops_char_ref_split_by_cut(ref: str) -> None:
+    head = "<b>n</b> " + "y" * (4095 - len("<b>n</b> ") - 1 - 3)
+    src = head + " " + ref + " " + ("z" * 5000)
+    out = truncate_for_telegram_html(src, 4096, suffix="…")
+    assert out == head + " …"
+
+
 # ---------------------------------------------------------------------------
 # Shared-transport delegation (regression coverage for the #864 refactor)
 # ---------------------------------------------------------------------------
