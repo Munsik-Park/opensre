@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import tracemalloc
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -393,6 +394,22 @@ def test_truncate_for_telegram_html_drops_char_ref_split_by_cut(ref: str) -> Non
     src = head + " " + ref + " " + ("z" * 5000)
     out = truncate_for_telegram_html(src, 4096, suffix="…")
     assert out == head + " …"
+
+
+def _peak_traced_bytes(text: str) -> int:
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        truncate_for_telegram_html(text, 4096, suffix="…")
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_truncate_for_telegram_html_memory_does_not_grow_with_input_past_max_len() -> None:
+    small = _peak_traced_bytes("<b>x</b>" * 2_000)
+    large = _peak_traced_bytes("<b>x</b>" * 200_000)
+    assert large < 10 * small, f"peak memory grew {large / small:.1f}x for a 100x longer input"
 
 
 # ---------------------------------------------------------------------------

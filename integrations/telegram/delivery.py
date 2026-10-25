@@ -71,37 +71,41 @@ def _tag_name_end(text: str, pos: int) -> int:
     return pos
 
 
-def _start_tag_end(text: str, pos: int) -> int:
+def _start_tag_end(text: str, pos: int, stop: int) -> int:
     """Return the offset just past the ``>`` ending a start tag, or ``len(text)``.
 
     A quoted attribute value may hold ``>``; Telegram reads a quote as opening a
-    value only right after ``=`` and optional whitespace.
+    value only right after ``=`` and optional whitespace. Nothing at or past
+    *stop* is read: a tag whose ``>`` lies there is reported as running to the
+    end of the text.
     """
-    while pos < len(text):
+    while pos < stop:
         char = text[pos]
         if char == ">":
             return pos + 1
         pos += 1
         if char != "=":
             continue
-        while pos < len(text) and text[pos] in _TELEGRAM_HTML_SPACE:
+        while pos < stop and text[pos] in _TELEGRAM_HTML_SPACE:
             pos += 1
-        if pos < len(text) and text[pos] in "\"'":
-            close = text.find(text[pos], pos + 1)
+        if pos < stop and text[pos] in "\"'":
+            close = text.find(text[pos], pos + 1, stop)
             if close == -1:
                 return len(text)
             pos = close + 1
     return len(text)
 
 
-def _read_html_tags(text: str) -> list[_HtmlTag]:
-    """Read the tags of *text* as Telegram's ``parse_mode=HTML`` parser does.
+def _read_html_tags(text: str, stop: int) -> list[_HtmlTag]:
+    """Read the tags of *text* that start before *stop*, as Telegram's parser does.
 
     A ``<`` that starts neither a start tag of a supported name nor an end tag
-    is one literal character.
+    is one literal character. Only the name read looks past *stop*, by a
+    constant; every other search ends there, so the work done is bounded by
+    *stop*, not by the length of the text.
     """
     tags: list[_HtmlTag] = []
-    pos = text.find("<")
+    pos = text.find("<", 0, stop)
     while pos != -1:
         closing = text.startswith("/", pos + 1)
         name_start = pos + 2 if closing else pos + 1
@@ -109,14 +113,14 @@ def _read_html_tags(text: str) -> list[_HtmlTag]:
         name = text[name_start:name_end]
         if name.isascii() and (name.lower() in _TELEGRAM_HTML_TAG_NAMES or (closing and not name)):
             if closing:
-                gt = text.find(">", name_end)
+                gt = text.find(">", name_end, stop)
                 end = len(text) if gt == -1 else gt + 1
             else:
-                end = _start_tag_end(text, name_end)
+                end = _start_tag_end(text, name_end, stop)
             tags.append(_HtmlTag(pos, end, name.lower(), closing))
-            pos = text.find("<", end)
+            pos = text.find("<", end, stop)
         else:
-            pos = text.find("<", pos + 1)
+            pos = text.find("<", pos + 1, stop)
     return tags
 
 
@@ -157,9 +161,9 @@ def truncate_for_telegram_html(text: str, max_len: int, suffix: str = "…") -> 
         return text
     if max_len <= len(suffix):
         return suffix[:max_len]
-    tags = _read_html_tags(text)
-    starts = [tag.start for tag in tags]
     room = max_len - len(suffix)
+    tags = _read_html_tags(text, room)
+    starts = [tag.start for tag in tags]
     while room > 0:
         cut = _cut_before_split_char_ref(text, _cut_outside_tags(tags, starts, room))
         closers = _closing_tags(tags[: bisect.bisect_left(starts, cut)])
