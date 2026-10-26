@@ -33,13 +33,14 @@ from infrastructure.scheduling.scheduler.loop_constants import (
 )
 from infrastructure.scheduling.scheduler.storage.database import run_database_path
 from infrastructure.scheduling.scheduler.storage.legacy_task_migration import (
+    migrate_blank_timezone,
     migrate_legacy_task_entries,
 )
 from infrastructure.scheduling.scheduler.storage.run_store import (
     retire_pending_runs,
     skip_queued_runs,
 )
-from infrastructure.scheduling.scheduler.types import ScheduledTask, TaskKind
+from infrastructure.scheduling.scheduler.types import ScheduledTask, TaskKind, schedule_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -278,11 +279,12 @@ def _schedule_identity(entry: Mapping[str, Any]) -> tuple[Any, ...]:
     if raw_params.get(LOOP_TEMPLATE_PARAM):
         ignored.update(_TEMPLATE_LOOP_TEXT)
     params = {key: value for key, value in raw_params.items() if key not in ignored}
+    timezone = entry.get("timezone")
     return (
         _owner_of(entry),
         entry.get("kind"),
         entry.get("cron"),
-        entry.get("timezone"),
+        schedule_timezone(timezone) if isinstance(timezone, str) else timezone,
         entry.get("provider"),
         entry.get("chat_id"),
         entry.get("window_hours"),
@@ -342,7 +344,12 @@ def add_task(task: ScheduledTask, store_path: Path | None = None) -> ScheduledTa
         if existing_index is not None:
             existing = raw[existing_index]
             refreshed = _refresh_template_copies(existing, task)
-            if existing.get("skill_revision", "") == task.skill_revision and not refreshed:
+            rezoned = migrate_blank_timezone(existing)
+            if (
+                existing.get("skill_revision", "") == task.skill_revision
+                and not refreshed
+                and not rezoned
+            ):
                 return ScheduledTask.model_validate(existing)
             existing["skill_revision"] = task.skill_revision
             stored_task = ScheduledTask.model_validate(existing)
