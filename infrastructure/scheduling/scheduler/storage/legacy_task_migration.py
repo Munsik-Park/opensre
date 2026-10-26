@@ -13,7 +13,7 @@ from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_MIGRATION_NOTICE_PARAM,
     LOOP_PROMPT_PARAM,
 )
-from infrastructure.scheduling.scheduler.types import TaskKind
+from infrastructure.scheduling.scheduler.types import TaskKind, schedule_timezone
 
 _CUSTOM_INVESTIGATION = "custom_investigation"
 _RETIRED_TASK_KINDS = frozenset(
@@ -28,11 +28,14 @@ _RETIRED_TASK_KINDS = frozenset(
 
 
 def migrate_legacy_task_entries(entries: Iterable[object], *, read_only: bool = False) -> bool:
-    """Normalize retired task kinds in place before strict model validation."""
+    """Normalize legacy task entries in place before strict model validation."""
     changed = False
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        # First: the reminder step resolves its run time in the stored zone and skips a blank one.
+        if migrate_blank_timezone(entry):
+            changed = True
         if _migrate_legacy_work_item_reminder(entry, read_only=read_only):
             changed = True
         legacy_kind = entry.get("kind")
@@ -59,6 +62,18 @@ def migrate_legacy_task_entries(entries: Iterable[object], *, read_only: bool = 
             f"--prompt <instruction> ...', then remove this task with 'opensre cron remove {task_id}'."
         )
     return changed
+
+
+def migrate_blank_timezone(entry: dict[str, object]) -> bool:
+    """Store a blank zone as the ``UTC`` it is scheduled in; return whether ``entry`` changed."""
+    timezone = entry.get("timezone")
+    if not isinstance(timezone, str):
+        return False
+    scheduled = schedule_timezone(timezone)
+    if scheduled == timezone:
+        return False
+    entry["timezone"] = scheduled
+    return True
 
 
 def _migrate_legacy_work_item_reminder(
@@ -102,4 +117,4 @@ def _migrate_legacy_work_item_reminder(
     return True
 
 
-__all__ = ["migrate_legacy_task_entries"]
+__all__ = ["migrate_blank_timezone", "migrate_legacy_task_entries"]

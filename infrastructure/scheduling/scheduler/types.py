@@ -105,6 +105,11 @@ class ScheduledTask(BaseModel):
         return self.id[:12]
 
 
+def schedule_timezone(timezone: str) -> str:
+    """Return the zone a schedule runs in: ``UTC`` for a blank ``timezone``, else it unchanged."""
+    return timezone if timezone.strip() else "UTC"
+
+
 class DeliveryOutcome(BaseModel):
     """What happened when one built message was delivered to one destination.
 
@@ -204,4 +209,5 @@ __all__ = [
     "TaskRun",
     "TaskReport",
     "TaskStatus",
+    "schedule_timezone",
 ]

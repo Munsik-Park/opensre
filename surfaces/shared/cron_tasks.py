@@ -20,7 +20,12 @@ from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_TEMPLATE_PARAM,
 )
 from infrastructure.scheduling.scheduler.loop_prompt import loop_skill_reference
-from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
+from infrastructure.scheduling.scheduler.types import (
+    Provider,
+    ScheduledTask,
+    TaskKind,
+    schedule_timezone,
+)
 
 
 def prepare_cron_task(
@@ -45,6 +50,7 @@ def prepare_cron_task(
     city: str,
 ) -> ScheduledTask:
     """Validate and prepare a scheduled task without saving or running it."""
+    timezone = schedule_timezone(timezone)
     task_kind = TaskKind(kind)
     if template:
         if task_kind != TaskKind.MANUAL_LOOP:
