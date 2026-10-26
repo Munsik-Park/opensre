@@ -330,7 +330,7 @@ class TestAddTaskDeduplicates:
         assert len(list_tasks(store_path)) == 2
 
     def test_a_stored_blank_timezone_is_the_same_schedule_as_utc(self, store_path: Path) -> None:
-        # Written directly: a row the defect stored blank, which no load has migrated yet.
+        # Written directly so the stored zone is still blank: no load has migrated it yet.
         stored = self._daily_summary(timezone="")
         store_path.write_text(json.dumps([stored.model_dump(mode="json")]), encoding="utf-8")
 
