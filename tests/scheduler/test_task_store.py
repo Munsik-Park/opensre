@@ -329,6 +329,18 @@ class TestAddTaskDeduplicates:
         # Assert
         assert len(list_tasks(store_path)) == 2
 
+    def test_a_stored_blank_timezone_is_the_same_schedule_as_utc(self, store_path: Path) -> None:
+        # Written directly: a row the defect stored blank, which no load has migrated yet.
+        stored = self._daily_summary(timezone="")
+        store_path.write_text(json.dumps([stored.model_dump(mode="json")]), encoding="utf-8")
+
+        added = add_task(self._daily_summary(), store_path)
+
+        rows = json.loads(store_path.read_text(encoding="utf-8"))
+        assert added.id == stored.id, "a second row would deliver every UTC fire twice"
+        assert added.timezone == "UTC"
+        assert [row["timezone"] for row in rows] == ["UTC"]
+
 
 class TestReloadSignal:
     """Store mutations wake a running scheduler, so every caller path benefits."""
@@ -627,6 +639,27 @@ class TestLegacyTaskMigration:
         persisted = store_path.read_text(encoding="utf-8")
         assert get_task(legacy_task.id, store_path) is not None
         assert store_path.read_text(encoding="utf-8") == persisted
+
+    @pytest.mark.parametrize("timezone", ["", "   "])
+    def test_blank_timezone_is_stored_as_utc_once(self, store_path: Path, timezone: str) -> None:
+        legacy_task = ScheduledTask(
+            kind=TaskKind.MANUAL_LOOP,
+            cron="0 9 * * *",
+            timezone=timezone,
+            provider=Provider.INTERACTIVE_SHELL,
+            params={"prompt": "Check open incidents."},
+        )
+        store_path.write_text(json.dumps([legacy_task.model_dump(mode="json")]), encoding="utf-8")
+
+        assert [task.timezone for task in list_tasks(store_path)] == ["UTC"]
+        stored = json.loads(store_path.read_text(encoding="utf-8"))
+        assert [row["timezone"] for row in stored] == ["UTC"]
+        written = store_path.stat()
+        assert [task.timezone for task in list_tasks(store_path)] == ["UTC"]
+        reread = store_path.stat()
+        assert (reread.st_ino, reread.st_mtime_ns) == (written.st_ino, written.st_mtime_ns), (
+            "a migrated store was rewritten on the next load"
+        )
 
     @staticmethod
     def _copy_fixture(store_path: Path) -> None:
