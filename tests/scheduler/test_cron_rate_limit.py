@@ -56,8 +56,7 @@ class _BeforeEuFallBack(datetime):
 def test_a_capped_hour_keeps_the_earliest_hour_its_field_matches(
     timezone: str, cron: str, expected: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The hour is capped only when the sampled fires cross a fall-back, whose repeated
-    # wall-clock hour reads as two fires no time apart; EU clocks fall back on 2026-10-25.
+    # Freeze the clock the day before EU clocks fall back on 2026-10-25.
     monkeypatch.setattr(
         "infrastructure.scheduling.scheduler.cron_expression.datetime", _BeforeEuFallBack
     )
