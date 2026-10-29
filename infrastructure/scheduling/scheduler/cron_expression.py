@@ -150,10 +150,10 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
     return False
 
 
-#: Midnight in a fixed-offset zone: with every other field ``*``, the first fire
-#: from it carries the earliest value a field matches. A zone with a DST gap
-#: could skip a matched hour, and starting from the current time would make the
-#: result depend on the clock.
+#: Midnight in a fixed-offset zone: with every other field matching that midnight
+#: (``*``, or ``0`` for the minute), the first fire from it carries the earliest
+#: value a field matches. A zone with a DST gap could skip a matched hour, and
+#: starting from the current time would make the result depend on the clock.
 _EARLIEST_MATCH_SEARCH_START = datetime(2000, 1, 1, tzinfo=UTC)
 
 
