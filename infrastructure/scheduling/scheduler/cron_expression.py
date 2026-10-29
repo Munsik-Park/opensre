@@ -150,10 +150,19 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
     return False
 
 
-def _earliest_field_value(field: str, maximum: int) -> str:
-    numbers = [int(match) for match in re.findall(r"\d+", field)]
-    allowed = [number for number in numbers if number <= maximum]
-    return str(min(allowed)) if allowed else "0"
+#: Midnight in a fixed-offset zone: with every other field ``*``, the first fire
+#: from it carries the earliest value a field matches. A zone with a DST gap
+#: could skip a matched hour, and starting from the current time would make the
+#: result depend on the clock.
+_EARLIEST_MATCH_SEARCH_START = datetime(2000, 1, 1, tzinfo=UTC)
+
+
+def _first_fire(cron: str) -> datetime:
+    """The first fire of ``cron`` in UTC at or after a fixed midnight."""
+    fire: datetime = build_cron_trigger(cron, "UTC").get_next_fire_time(
+        None, _EARLIEST_MATCH_SEARCH_START
+    )
+    return fire
 
 
 def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
@@ -171,10 +180,10 @@ def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     parts = normalized.split()
     if len(parts) == CRON_FIELD_COUNT_WITH_SECONDS:
         parts = parts[1:]
-    parts[0] = _earliest_field_value(parts[0], 59)
+    parts[0] = str(_first_fire(f"{parts[0]} * * * *").minute)
     capped = " ".join(parts)
     if _fires_more_than_hourly(capped, timezone):
-        parts[1] = _earliest_field_value(parts[1], 23)
+        parts[1] = str(_first_fire(f"0 {parts[1]} * * *").hour)
         capped = " ".join(parts)
     return capped
 
