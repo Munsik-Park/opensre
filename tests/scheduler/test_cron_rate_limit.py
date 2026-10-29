@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,11 @@ from tests.scheduler._bundle import real_runners
         ("0,15,30,45 * * * *", "0 * * * *"),
         ("4,19,34,49 * * * *", "4 * * * *"),
         ("12,27,42,57 * * * *", "12 * * * *"),
-        ("*/15 * * * *", "15 * * * *"),
+        ("*/15 * * * *", "0 * * * *"),
+        ("30-59/15 * * * *", "30 * * * *"),
+        ("20/15 * * * *", "20 * * * *"),
+        ("*/20,5 * * * *", "0 * * * *"),
+        ("5,*/20 * * * *", "0 * * * *"),
         ("* * * * *", "0 * * * *"),
         ("*/30 * * * * *", "0 * * * *"),
         ("0,30 9 * * 1", "0 9 * * 1"),
@@ -32,6 +37,32 @@ from tests.scheduler._bundle import real_runners
 )
 def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected: str) -> None:
     assert cap_cron_at_most_hourly(cron, "UTC") == expected
+
+
+class _BeforeEuFallBack(datetime):
+    @classmethod
+    def now(cls, tz: object = None) -> datetime:
+        _ = tz
+        return datetime(2026, 10, 24, 12, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("timezone", "cron", "expected"),
+    [
+        ("Europe/Berlin", "*/15 */2 * * *", "0 0 * * *"),
+        ("Europe/Helsinki", "*/15 3-23/2 * * *", "0 3 * * *"),
+    ],
+)
+def test_a_capped_hour_keeps_the_earliest_hour_its_field_matches(
+    timezone: str, cron: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The hour is capped only when the sampled fires cross a fall-back, whose repeated
+    # wall-clock hour reads as two fires no time apart; EU clocks fall back on 2026-10-25.
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.cron_expression.datetime", _BeforeEuFallBack
+    )
+
+    assert cap_cron_at_most_hourly(cron, timezone) == expected
 
 
 @pytest.mark.parametrize(
