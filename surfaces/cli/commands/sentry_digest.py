@@ -15,8 +15,8 @@ from bootstrap.process import SCHEDULED_COMMAND_PROFILE, configure_process
 from infrastructure.scheduling.scheduler.delivery import SUPPORTED_DELIVERY_PROVIDERS
 from infrastructure.scheduling.scheduler.sources import CLI_SENTRY_MORNING_DIGEST
 from surfaces.cli.commands.scheduling import (
+    add_enabled_column,
     add_task_and_echo,
-    enabled_cell,
     validate_cron_and_timezone,
 )
 
@@ -201,7 +201,7 @@ def sentry_uptime_watch_list() -> None:
     table.add_column("Provider")
     table.add_column("Chat")
     table.add_column("Project")
-    table.add_column("Enabled", no_wrap=True)
+    enabled_cells = add_enabled_column(table, tasks)
     table.add_column("Last run")
 
     for task in tasks:
@@ -213,7 +213,7 @@ def sentry_uptime_watch_list() -> None:
             task.provider.value,
             task.chat_id,
             project or "—",
-            enabled_cell(task),
+            enabled_cells[task.id],
             task.last_run or "—",
         )
     _console.print(table)
@@ -389,7 +389,7 @@ def sentry_digest_schedule_list() -> None:
     table.add_column("Provider")
     table.add_column("Chat")
     table.add_column("Project")
-    table.add_column("Enabled", no_wrap=True)
+    enabled_cells = add_enabled_column(table, tasks)
     table.add_column("Last run")
 
     for task in tasks:
@@ -401,7 +401,7 @@ def sentry_digest_schedule_list() -> None:
             task.provider.value,
             task.chat_id,
             project or "—",
-            enabled_cell(task),
+            enabled_cells[task.id],
             task.last_run or "—",
         )
 
