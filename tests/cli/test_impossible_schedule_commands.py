@@ -189,3 +189,28 @@ def test_per_kind_lists_warn_on_the_impossible_row_only(
     assert GLYPH_SUCCESS not in impossible
     assert GLYPH_SUCCESS in firing
     assert NEVER_RUNS not in firing
+
+
+@pytest.mark.parametrize("columns", ["40", "80"])
+@pytest.mark.parametrize(
+    ("kind", "command", "path"),
+    [
+        (TaskKind.SENTRY_MORNING_DIGEST, sentry_command, ("digest", "schedule", "list")),
+        (TaskKind.SENTRY_UPTIME_WATCH, sentry_command, ("uptime", "watch", "list")),
+        (TaskKind.POSTHOG_METRIC_REPORT, posthog_command, ("report", "schedule", "list")),
+    ],
+)
+def test_per_kind_lists_keep_the_label_whole_on_a_narrow_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: TaskKind,
+    command: Any,
+    path: tuple[str, ...],
+    columns: str,
+) -> None:
+    store_loop("neverfiring", kind=kind)
+    monkeypatch.setenv("COLUMNS", columns)
+
+    result = CliRunner().invoke(command, list(path))
+
+    assert result.exit_code == 0, result.output
+    assert NEVER_RUNS in result.output, result.output
