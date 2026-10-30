@@ -24,13 +24,35 @@ from tests.scheduler._bundle import real_runners
         ("0,15,30,45 * * * *", "0 * * * *"),
         ("4,19,34,49 * * * *", "4 * * * *"),
         ("12,27,42,57 * * * *", "12 * * * *"),
-        ("*/15 * * * *", "15 * * * *"),
+        ("*/15 * * * *", "0 * * * *"),
+        ("30-59/15 * * * *", "30 * * * *"),
+        ("20/15 * * * *", "20 * * * *"),
+        ("*/20,5 * * * *", "0 * * * *"),
         ("* * * * *", "0 * * * *"),
         ("*/30 * * * * *", "0 * * * *"),
         ("0,30 9 * * 1", "0 9 * * 1"),
     ],
 )
 def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected: str) -> None:
+    assert cap_cron_at_most_hourly(cron, "UTC") == expected
+
+
+@pytest.mark.parametrize(
+    ("cron", "expected"),
+    [
+        ("*/15 */2 * * *", "0 0 * * *"),
+        ("*/15 9-17/4 * * *", "0 9 * * *"),
+    ],
+)
+def test_a_capped_hour_field_keeps_its_earliest_hour(
+    cron: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The real judgment caps the hour only around a DST fold, so it is fixed here.
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.cron_expression._fires_more_than_hourly",
+        lambda _cron, _timezone: True,
+    )
+
     assert cap_cron_at_most_hourly(cron, "UTC") == expected
 
 
