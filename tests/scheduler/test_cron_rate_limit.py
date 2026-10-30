@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
+from typing import Self
 
 import pytest
 
 from config.constants.ci_repair import CI_REPAIR_CRON, CI_REPAIR_REPORT_BUILDER
-from infrastructure.scheduling.scheduler.cron_expression import cap_cron_at_most_hourly
+from infrastructure.scheduling.scheduler.cron_expression import (
+    _earliest_field_value,
+    cap_cron_at_most_hourly,
+)
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_PROMPT_PARAM, LOOP_REPORT_PARAM
 from infrastructure.scheduling.scheduler.loops import create_manual_loop
 from infrastructure.scheduling.scheduler.runner import _register_jobs
@@ -24,7 +29,12 @@ from tests.scheduler._bundle import real_runners
         ("0,15,30,45 * * * *", "0 * * * *"),
         ("4,19,34,49 * * * *", "4 * * * *"),
         ("12,27,42,57 * * * *", "12 * * * *"),
-        ("*/15 * * * *", "15 * * * *"),
+        ("*/15 * * * *", "0 * * * *"),
+        ("5-59/15 * * * *", "5 * * * *"),
+        ("30-59/15 * * * *", "30 * * * *"),
+        ("20/15 * * * *", "20 * * * *"),
+        ("*/20,5 * * * *", "0 * * * *"),
+        ("*/2 * * * *", "0 * * * *"),
         ("* * * * *", "0 * * * *"),
         ("*/30 * * * * *", "0 * * * *"),
         ("0,30 9 * * 1", "0 9 * * 1"),
@@ -32,6 +42,37 @@ from tests.scheduler._bundle import real_runners
 )
 def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected: str) -> None:
     assert cap_cron_at_most_hourly(cron, "UTC") == expected
+
+
+class _BeforeBerlinFallBack(datetime):
+    """A clock four days before Berlin leaves summer time, when the hour is capped too."""
+
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        _ = tz
+        return cls(2026, 10, 22, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("cron", "expected"),
+    [("0 */2 * * *", "0 0 * * *"), ("30 */2 * * *", "30 0 * * *")],
+)
+def test_a_capped_hour_step_keeps_its_earliest_hour(
+    cron: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.cron_expression.datetime", _BeforeBerlinFallBack
+    )
+
+    assert cap_cron_at_most_hourly(cron, "Europe/Berlin") == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [("*/2", "0"), ("9-17/4", "9"), ("*/20,5", "0"), ("30-59/15", "30"), ("20/15", "20")],
+)
+def test_a_step_field_keeps_the_earliest_value_it_matches(field: str, expected: str) -> None:
+    assert _earliest_field_value(field) == expected
 
 
 @pytest.mark.parametrize(
