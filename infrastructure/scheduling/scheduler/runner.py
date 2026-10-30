@@ -27,6 +27,7 @@ from config.constants.turn_concurrency import (
 )
 from config.constants.work_items import WORK_ITEM_REMINDER_RUN_AT_PARAM
 from infrastructure.scheduling.scheduler.cron_expression import (
+    ImpossibleScheduleError,
     build_cron_trigger,
     cap_cron_at_most_hourly,
 )
@@ -99,6 +100,8 @@ def _make_trigger(task: ScheduledTask) -> Any:
 
     try:
         return build_cron_trigger(task.cron, task.timezone)
+    except ImpossibleScheduleError:
+        raise
     except ValueError as exc:
         raise ValueError(f"Invalid cron/timezone for task {task.id}: {exc}") from exc
 
@@ -458,6 +461,10 @@ def _register_jobs(
 
         try:
             current_task = patch_scheduler_task(listed_task.id, _registration_patch)
+        except ImpossibleScheduleError as exc:
+            # An ERROR is a Sentry event, and every reconcile would repeat it for a stored state.
+            logger.warning("Skipping task %s: %s", listed_task.id, exc)
+            continue
         except ValueError as exc:
             logger.error("Skipping task %s: %s", listed_task.id, exc)
             continue

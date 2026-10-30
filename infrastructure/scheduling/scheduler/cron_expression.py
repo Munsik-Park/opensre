@@ -95,11 +95,16 @@ def _weekday_ranges(days: set[int]) -> list[str]:
     return ranges
 
 
+class ImpossibleScheduleError(ValueError):
+    """A cron whose fields and timezone are valid but which has no future fire time."""
+
+
 def build_cron_trigger(cron: str, timezone: str | None) -> Any:
     """Build an APScheduler ``CronTrigger`` for a five- or six-field crontab expression.
 
     Raises ``ValueError`` when the field count, a field value, or the timezone
-    is invalid, so callers reject a schedule before it is stored.
+    is invalid, and :class:`ImpossibleScheduleError` when the trigger has no next
+    fire time, so callers reject a schedule before it is stored.
     """
     from apscheduler.triggers.cron import CronTrigger
 
@@ -113,7 +118,7 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
         raise ValueError(f"{CRON_FIELD_COUNT_ERROR}: {cron!r}")
 
     try:
-        return CronTrigger(
+        trigger = CronTrigger(
             second=second,
             minute=minute,
             hour=hour,
@@ -124,6 +129,24 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
         )
     except (ValueError, TypeError, KeyError) as exc:
         raise ValueError(f"invalid cron expression or timezone: {exc}") from exc
+    if trigger.get_next_fire_time(None, datetime.now(UTC)) is None:
+        raise ImpossibleScheduleError(
+            f"cron schedule {cron!r} has no possible future execution time, so it would never run"
+        )
+    return trigger
+
+
+def five_field_cron_error(cron: str, timezone: str | None) -> str:
+    """Why a surface limited to five fields refuses ``cron``, or ``""`` when it accepts it."""
+    five_fields = len(cron.split()) == CRON_FIELD_COUNT
+    try:
+        build_cron_trigger(cron, timezone)
+    except ImpossibleScheduleError as exc:
+        return str(exc)
+    except ValueError as exc:
+        if five_fields:
+            return str(exc)
+    return "" if five_fields else f"cron must have exactly {CRON_FIELD_COUNT} fields"
 
 
 _MIN_FIRE_GAP_SECONDS = 60 * 60
@@ -132,6 +155,11 @@ _FIRE_SAMPLES = 48
 
 def _normalized_cron(cron: str) -> str:
     return " ".join(cron.split())
+
+
+def same_cron(left: str, right: str) -> bool:
+    """Whether two expressions differ at most in their whitespace."""
+    return _normalized_cron(left) == _normalized_cron(right)
 
 
 def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
@@ -184,7 +212,10 @@ __all__ = [
     "CRON_FIELD_COUNT_ERROR",
     "CRON_FIELD_COUNT_WITH_SECONDS",
     "CRON_FORMAT_HELP",
+    "ImpossibleScheduleError",
     "build_cron_trigger",
     "cap_cron_at_most_hourly",
     "day_of_week_names",
+    "five_field_cron_error",
+    "same_cron",
 ]

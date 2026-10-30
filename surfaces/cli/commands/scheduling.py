@@ -20,6 +20,7 @@ from infrastructure.scheduling.scheduler.cron_expression import (
     CRON_FORMAT_HELP,
     build_cron_trigger,
 )
+from infrastructure.terminal.theme import GLYPH_ERROR, GLYPH_SUCCESS
 
 if TYPE_CHECKING:
     from infrastructure.scheduling.scheduler.types import ScheduledTask
@@ -44,6 +45,16 @@ def validate_cron_and_timezone(cron_expr: str, timezone: str) -> None:
     except ValueError as exc:
         _console.print(f"[red]Error: {exc}[/red]")
         raise SystemExit(1) from exc
+
+
+def enabled_cell(task: ScheduledTask) -> str:
+    """The ``Enabled`` cell of a per-kind schedule list; a task that never fires gets no success mark."""
+    from config.constants.scheduler import NEVER_RUNS_LABEL
+    from infrastructure.scheduling.scheduler.loops import summarize_loop
+
+    if summarize_loop(task).never_fires:
+        return NEVER_RUNS_LABEL
+    return GLYPH_SUCCESS if task.enabled else GLYPH_ERROR
 
 
 def add_task_and_echo(task: ScheduledTask, *, label: str) -> ScheduledTask:

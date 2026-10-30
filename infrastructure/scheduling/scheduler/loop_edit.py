@@ -8,8 +8,10 @@ from pathlib import Path
 
 from config.constants.ci_repair import CI_REPAIR_REPORT_BUILDER
 from infrastructure.scheduling.scheduler.cron_expression import (
+    ImpossibleScheduleError,
     build_cron_trigger,
     cap_cron_at_most_hourly,
+    same_cron,
 )
 from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_CHANNELS_PARAM,
@@ -126,6 +128,21 @@ def loop_changes(
     return validate_loop_changes(changes)
 
 
+def keeps_impossible_cron(cron: str, timezone: str, stored_cron: str) -> bool:
+    """Whether an edit leaves ``stored_cron`` in force and that cron has no future fire time.
+
+    Raises ``ValueError`` for any other schedule that cannot be used, including an
+    impossible cron the edit would change to.
+    """
+    try:
+        build_cron_trigger(cron, timezone)
+    except ImpossibleScheduleError:
+        if not same_cron(cron, stored_cron):
+            raise
+        return True
+    return False
+
+
 def _definition_patch(
     task: ScheduledTask, changes: Mapping[str, str], *, loop_id: str, now: datetime | None
 ) -> Mapping[str, object]:
@@ -157,8 +174,8 @@ def _definition_patch(
     if "cron" in changes or "timezone" in changes:
         timezone = changes.get("timezone", task.timezone)
         cron = changes.get("cron", task.cron)
-        build_cron_trigger(cron, timezone)
-        if "cron" in changes:
+        kept_impossible = keeps_impossible_cron(cron, timezone, task.cron)
+        if "cron" in changes and not kept_impossible:
             if (
                 task.kind is TaskKind.MANUAL_LOOP
                 and params.get(LOOP_REPORT_PARAM, "") != CI_REPAIR_REPORT_BUILDER
@@ -171,7 +188,9 @@ def _definition_patch(
             else:
                 params.pop(LOOP_TIME_PARAM, None)
         prospective = task.model_copy(update=patch)
-        patch["next_run"] = compute_next_run(prospective, now) if task.enabled else None
+        patch["next_run"] = (
+            compute_next_run(prospective, now) if task.enabled and not kept_impossible else None
+        )
     if params != task.params:
         patch["params"] = params
     return patch
@@ -250,6 +269,7 @@ __all__ = [
     "DELIVERY_FIELDS",
     "PRIVATE_FIELD",
     "edit_loop",
+    "keeps_impossible_cron",
     "loop_changes",
     "loop_prompt_editable",
     "validate_loop_changes",

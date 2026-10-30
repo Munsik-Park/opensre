@@ -14,8 +14,11 @@ from rich.table import Table
 from bootstrap.process import SCHEDULED_COMMAND_PROFILE, configure_process
 from infrastructure.scheduling.scheduler.delivery import SUPPORTED_DELIVERY_PROVIDERS
 from infrastructure.scheduling.scheduler.sources import CLI_SENTRY_MORNING_DIGEST
-from infrastructure.terminal.theme import GLYPH_ERROR, GLYPH_SUCCESS
-from surfaces.cli.commands.scheduling import add_task_and_echo, validate_cron_and_timezone
+from surfaces.cli.commands.scheduling import (
+    add_task_and_echo,
+    enabled_cell,
+    validate_cron_and_timezone,
+)
 
 _console = Console()
 _PROVIDER_CHOICES = [p.value for p in SUPPORTED_DELIVERY_PROVIDERS]
@@ -210,7 +213,7 @@ def sentry_uptime_watch_list() -> None:
             task.provider.value,
             task.chat_id,
             project or "—",
-            GLYPH_SUCCESS if task.enabled else GLYPH_ERROR,
+            enabled_cell(task),
             task.last_run or "—",
         )
     _console.print(table)
@@ -398,7 +401,7 @@ def sentry_digest_schedule_list() -> None:
             task.provider.value,
             task.chat_id,
             project or "—",
-            GLYPH_SUCCESS if task.enabled else GLYPH_ERROR,
+            enabled_cell(task),
             task.last_run or "—",
         )
 

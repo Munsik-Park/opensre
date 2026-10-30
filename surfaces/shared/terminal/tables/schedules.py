@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from rich.console import Console
 from rich.text import Text
 
+from config.constants.scheduler import NEVER_RUNS_LABEL
 from infrastructure.scheduling.scheduler.loops import LoopSummary
 from infrastructure.scheduling.scheduler.types import TaskRun
 from infrastructure.terminal.theme import DIM, HIGHLIGHT, WARNING
@@ -24,6 +25,13 @@ def schedule_channels(loop: LoopSummary) -> str:
     )
 
 
+def schedule_problem_label(loop: LoopSummary) -> str:
+    """The state a list row shows for a loop whose schedule cannot run, or ``""``."""
+    if loop.never_fires:
+        return NEVER_RUNS_LABEL
+    return "Invalid" if loop.schedule_error else ""
+
+
 def print_schedules(
     console: Console,
     loops: Sequence[LoopSummary],
@@ -35,7 +43,7 @@ def print_schedules(
     """Keep IDs and secondary details outside width-constrained summary columns."""
     rows: list[RecordRow] = []
     for loop in loops:
-        state = "Invalid" if loop.schedule_error else "Active" if loop.enabled else "Paused"
+        state = schedule_problem_label(loop) or ("Active" if loop.enabled else "Paused")
         state_style = WARNING if loop.schedule_error else HIGHLIGHT if loop.enabled else DIM
         next_run = (
             format_repl_timestamp(loop.next_run, style="utc").removesuffix(" UTC")

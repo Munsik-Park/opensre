@@ -14,6 +14,7 @@ from surfaces.shared.terminal.components.target_picker import TargetChoice, buil
 from surfaces.shared.terminal.components.time_format import format_repl_timestamp
 from surfaces.shared.terminal.tables.descriptions import description_details
 from surfaces.shared.terminal.tables.records import RecordColumn
+from surfaces.shared.terminal.tables.schedules import schedule_problem_label
 
 
 def _preview(description: str) -> tuple[str, ...]:
@@ -36,7 +37,7 @@ def build_loop_picker(
             title=loop.name,
             summary=" · ".join(
                 (
-                    "Invalid" if loop.schedule_error else loop.status.capitalize(),
+                    schedule_problem_label(loop) or loop.status.capitalize(),
                     f"Cron {loop.cron}",
                     f"TZ {loop.timezone}",
                     f"Mode {loop.mode}",
@@ -49,12 +50,12 @@ def build_loop_picker(
             ),
             search_text=" ".join((loop.description, loop.prompt, loop.cron, *loop.task_ids)),
             summary_style="error" if loop.schedule_error else "description",
-            compact_summary=f"{'Invalid' if loop.schedule_error else loop.mode.capitalize()} · TZ {loop.timezone}",
+            compact_summary=f"{schedule_problem_label(loop) or loop.mode.capitalize()} · TZ {loop.timezone}",
             compact_details=(f"Full details: /loops show {loop.id}",),
             minimal_details=("Full details: /loops show <id>",),
             cells=(
                 Text(
-                    "Invalid" if loop.schedule_error else loop.status.capitalize(),
+                    schedule_problem_label(loop) or loop.status.capitalize(),
                     style=str(ERROR if loop.schedule_error else SECONDARY),
                 ),
                 Text(loop.cron, style=str(SECONDARY)),

@@ -5,6 +5,9 @@ from __future__ import annotations
 WEEKDAY_CRON_FIELD = "mon-fri"
 """Monday to Friday in day names, the spelling a crontab ``1-5`` is translated to."""
 
+NEVER_RUNS_LABEL = "Never runs"
+"""The state a list shows for a loop whose cron has no possible future execution time."""
+
 # Whether the gateway process co-hosts the scheduler loop in-process. On by
 # default (single-process deployment). Set false to run the scheduler as its own
 # service (MODE=scheduler / `opensre cron start`) so tasks are not fired twice.

@@ -14,6 +14,7 @@ from infrastructure.terminal.theme import DIM, HIGHLIGHT, SECONDARY, WARNING
 from surfaces.shared.terminal.components.target_picker import TargetChoice, build_target_picker
 from surfaces.shared.terminal.components.time_format import format_repl_timestamp
 from surfaces.shared.terminal.tables.records import RecordColumn
+from surfaces.shared.terminal.tables.schedules import schedule_problem_label
 
 
 def build_cron_target_picker(
@@ -43,7 +44,7 @@ def build_cron_target_picker(
             )
         )
         loop = summarize_loop(task)
-        state = "Invalid" if loop.schedule_error else "Active" if task.enabled else "Paused"
+        state = schedule_problem_label(loop) or ("Active" if task.enabled else "Paused")
         state_style = WARNING if loop.schedule_error else HIGHLIGHT if task.enabled else DIM
         next_run = (
             format_repl_timestamp(loop.next_run, style="utc").removesuffix(" UTC")

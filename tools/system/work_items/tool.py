@@ -26,7 +26,7 @@ from core.domain.work_items import (
 )
 from core.tool import AgentToolContext, SideEffectLevel
 from core.tool_framework import tool
-from infrastructure.scheduling.scheduler.cron_expression import build_cron_trigger
+from infrastructure.scheduling.scheduler.cron_expression import five_field_cron_error
 from infrastructure.scheduling.scheduler.storage import add_task as add_scheduled_task
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from tools.system.work_items._evidence import map_work_task_list, map_work_task_prioritize
@@ -576,13 +576,9 @@ def work_task_schedule_checkin(
     limit: int = DEFAULT_PRIORITY_LIMIT,
     context: AgentToolContext | None = None,
 ) -> dict[str, Any]:
-    parts = cron.split()
-    if len(parts) != 5:
-        return {"error": "invalid_cron", "detail": "cron must have exactly 5 fields"}
-    try:
-        build_cron_trigger(cron, timezone or "UTC")
-    except ValueError as exc:
-        return {"error": "invalid_cron", "detail": str(exc)}
+    cron_error = five_field_cron_error(cron, timezone or "UTC")
+    if cron_error:
+        return {"error": "invalid_cron", "detail": cron_error}
 
     targets = delivery_targets(
         provider=provider,
