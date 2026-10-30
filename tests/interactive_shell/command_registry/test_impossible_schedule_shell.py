@@ -1,5 +1,3 @@
-"""Shell commands, forms and pickers refuse a cron schedule that can never fire and warn about a stored one."""
-
 from __future__ import annotations
 
 import io
@@ -127,7 +125,6 @@ def test_loops_edit_arguments_refuse_a_change_to_an_impossible_cron() -> None:
 
 
 def _edit_form_validator(monkeypatch: pytest.MonkeyPatch, task_id: str) -> Any:
-    """The edit form's real validator and its initial values, without running the form."""
     captured: dict[str, Any] = {}
 
     def capture(current: dict[str, str], **kwargs: Any) -> None:
@@ -238,7 +235,6 @@ def test_loops_show_states_it_in_status_and_shows_the_sentence(enabled: bool) ->
 
 
 def _painted_rows(monkeypatch: pytest.MonkeyPatch, columns: int) -> list[str]:
-    """The chooser's option rows as the real painter writes them at ``columns``."""
     monkeypatch.setattr(loop_show, "repl_tty_interactive", lambda: True)
     monkeypatch.setattr(choice_menu, "repl_tty_interactive", lambda: True)
     monkeypatch.setattr(choice_menu, "_read_action", lambda **_kwargs: "cancel")

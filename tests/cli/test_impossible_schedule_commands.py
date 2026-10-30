@@ -1,5 +1,3 @@
-"""CLI commands refuse a cron schedule that can never fire and warn about a stored one."""
-
 from __future__ import annotations
 
 import json

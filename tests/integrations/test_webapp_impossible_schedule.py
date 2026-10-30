@@ -1,5 +1,3 @@
-"""The web app's loop sync refuses a cron schedule that can never fire and reports a stored one."""
-
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,5 +1,3 @@
-"""The model's scheduling tools refuse a cron schedule that can never fire and report a stored one."""
-
 from __future__ import annotations
 
 from pathlib import Path

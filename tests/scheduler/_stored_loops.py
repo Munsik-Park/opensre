@@ -1,7 +1,4 @@
-"""Stored loops for the tests of a cron schedule that can never fire.
-
-``add_task`` validates no schedule, so it can store a row every write path refuses.
-"""
+"""``add_task`` validates no schedule, so it can store a row every write path refuses."""
 
 from __future__ import annotations
 
@@ -24,7 +21,6 @@ NEVER_RUNS = "Never runs"
 
 
 def isolate_scheduler_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Point every scheduler module that holds the home directory at ``tmp_path``."""
     home = tmp_path / "opensre-home"
     for info in pkgutil.walk_packages(scheduler_pkg.__path__, f"{scheduler_pkg.__name__}."):
         module = importlib.import_module(info.name)
@@ -63,5 +59,5 @@ def stored_row(task_id: str) -> dict[str, Any]:
 
 
 def flat(output: str) -> str:
-    """Terminal output with its line wrapping undone, for a phrase a console may break."""
+    """A console may break a phrase across lines."""
     return " ".join(output.split())

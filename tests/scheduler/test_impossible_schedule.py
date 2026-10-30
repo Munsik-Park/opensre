@@ -1,5 +1,3 @@
-"""A cron schedule that can never fire: the check, editing, summaries and scheduler counts."""
-
 from __future__ import annotations
 
 import logging
@@ -325,7 +323,6 @@ def test_a_store_of_only_an_impossible_loop_starts_no_background_scheduler(
 
 @pytest.fixture
 def no_block(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int]]:
-    """Let a blocking scheduler return at once, and record what it reports about itself."""
     recorded: list[tuple[str, int]] = []
 
     def record(operation: str, *, task_count: int = 0, **_kwargs: Any) -> None:
@@ -360,7 +357,6 @@ def test_a_scheduler_service_idles_when_only_an_impossible_loop_is_stored(
 
 @pytest.fixture
 def gateway(monkeypatch: pytest.MonkeyPatch) -> Iterator[GatewayController]:
-    """A controller whose threads, adapters and web report are off; its scheduler is real."""
     for method in (
         "_start_scheduler_reload_watcher",
         "_start_webapp_loop_sync",
