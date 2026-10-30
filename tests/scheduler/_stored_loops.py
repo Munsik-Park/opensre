@@ -1,4 +1,4 @@
-"""``add_task`` validates no schedule, so it can store a row every write path refuses."""
+"""Store loop rows directly, so a test can start from any schedule."""
 
 from __future__ import annotations
 
