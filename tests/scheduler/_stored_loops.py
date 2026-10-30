@@ -1,7 +1,6 @@
 """Stored loops for the tests of a cron schedule that can never fire.
 
-``add_task`` validates no schedule, so a row written through it looks like one
-stored before schedules were refused on write.
+``add_task`` validates no schedule, so it can store a row every write path refuses.
 """
 
 from __future__ import annotations
