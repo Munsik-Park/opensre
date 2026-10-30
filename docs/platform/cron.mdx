@@ -252,7 +252,7 @@ Cron expressions are validated at `cron add` time using APScheduler's
 that can never fire, such as `0 8 31 2 *` (February 31).
 
 A task stored with such a schedule shows `Never runs` in `opensre cron list` and
-does not run. Change its schedule with `/loops edit`, or remove it with
+does not run on a schedule. Change its schedule with `/loops edit`, or remove it with
 `opensre cron remove`.
 
 ## Timezone Behavior
