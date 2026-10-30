@@ -208,9 +208,30 @@ def test_per_kind_lists_keep_the_label_whole_on_a_narrow_terminal(
     columns: str,
 ) -> None:
     store_loop("neverfiring", kind=kind)
+    store_loop("firingtask", kind=kind, cron=FIRING_CRON)
     monkeypatch.setenv("COLUMNS", columns)
 
     result = CliRunner().invoke(command, list(path))
 
     assert result.exit_code == 0, result.output
     assert NEVER_RUNS in result.output, result.output
+
+
+@pytest.mark.parametrize(
+    ("kind", "command", "path"),
+    [
+        (TaskKind.SENTRY_MORNING_DIGEST, sentry_command, ("digest", "schedule", "list")),
+        (TaskKind.SENTRY_UPTIME_WATCH, sentry_command, ("uptime", "watch", "list")),
+        (TaskKind.POSTHOG_METRIC_REPORT, posthog_command, ("report", "schedule", "list")),
+    ],
+)
+def test_a_per_kind_list_with_no_never_firing_row_leaves_its_width_to_the_other_columns(
+    monkeypatch: pytest.MonkeyPatch, kind: TaskKind, command: Any, path: tuple[str, ...]
+) -> None:
+    store_loop("firingtask", kind=kind, cron=FIRING_CRON)
+    monkeypatch.setenv("COLUMNS", "40")
+
+    result = CliRunner().invoke(command, list(path))
+
+    assert result.exit_code == 0, result.output
+    assert "│ f… │" in result.output, f"the ID column gave its width away:\n{result.output}"
