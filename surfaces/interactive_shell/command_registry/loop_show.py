@@ -5,14 +5,24 @@ from __future__ import annotations
 from rich.console import Console
 from rich.text import Text
 
+from config.constants.scheduler import NEVER_RUNS_LABEL
 from core.agent_harness.spi.session_state import exclusive_stdin_active
 from infrastructure.scheduling.scheduler.loop_results import restore_legacy_reports
-from infrastructure.scheduling.scheduler.loops import list_loop_summaries, resolve_loop_summary
+from infrastructure.scheduling.scheduler.loops import (
+    LoopSummary,
+    list_loop_summaries,
+    resolve_loop_summary,
+)
 from infrastructure.scheduling.scheduler.storage import get_group_run, get_group_runs
 from infrastructure.terminal.theme import DIM, ERROR
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.loops import render_loop_details
 from surfaces.shared.terminal.components.choice_menu import repl_choose_one, repl_tty_interactive
+
+
+def _chooser_row(loop: LoopSummary) -> str:
+    warning = f"{NEVER_RUNS_LABEL}  " if loop.never_fires else ""
+    return f"{loop.id}  {warning}{' '.join(loop.name.split())}"
 
 
 def show_loop(session: Session, console: Console, args: list[str]) -> bool:
@@ -41,7 +51,7 @@ def show_loop(session: Session, console: Console, args: list[str]) -> bool:
         chosen = repl_choose_one(
             title="Loop results",
             breadcrumb="/loops show",
-            choices=[(loop.id, f"{loop.id}  {' '.join(loop.name.split())}") for loop in loops],
+            choices=[(loop.id, _chooser_row(loop)) for loop in loops],
         )
         if chosen is None:
             return True

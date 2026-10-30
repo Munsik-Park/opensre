@@ -14,8 +14,11 @@ from rich.table import Table
 from bootstrap.process import SCHEDULED_COMMAND_PROFILE, configure_process
 from infrastructure.scheduling.scheduler.delivery import SUPPORTED_DELIVERY_PROVIDERS
 from infrastructure.scheduling.scheduler.sources import CLI_POSTHOG_METRIC_REPORT
-from infrastructure.terminal.theme import GLYPH_ERROR, GLYPH_SUCCESS
-from surfaces.cli.commands.scheduling import add_task_and_echo, validate_cron_and_timezone
+from surfaces.cli.commands.scheduling import (
+    add_enabled_column,
+    add_task_and_echo,
+    validate_cron_and_timezone,
+)
 
 _console = Console()
 _PROVIDER_CHOICES = [p.value for p in SUPPORTED_DELIVERY_PROVIDERS]
@@ -182,7 +185,7 @@ def posthog_report_schedule_list() -> None:
     table.add_column("Provider")
     table.add_column("Chat")
     table.add_column("Period")
-    table.add_column("Enabled")
+    enabled_cells = add_enabled_column(table, tasks)
     table.add_column("Last run")
 
     for task in tasks:
@@ -194,7 +197,7 @@ def posthog_report_schedule_list() -> None:
             task.provider.value,
             task.chat_id,
             period or "—",
-            GLYPH_SUCCESS if task.enabled else GLYPH_ERROR,
+            enabled_cells[task.id],
             task.last_run or "—",
         )
 

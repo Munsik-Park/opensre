@@ -1205,6 +1205,9 @@ if TYPE_CHECKING:
         WORKSPACE_REPO_ENV_KEYS as WORKSPACE_REPO_ENV_KEYS,
     )
     from config.constants.scheduler import (
+        NEVER_RUNS_LABEL as NEVER_RUNS_LABEL,
+    )
+    from config.constants.scheduler import (
         NON_RETRYABLE_WORK_ERROR_KINDS as NON_RETRYABLE_WORK_ERROR_KINDS,
     )
     from config.constants.scheduler import (

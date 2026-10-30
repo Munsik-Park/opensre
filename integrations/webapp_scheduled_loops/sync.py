@@ -558,7 +558,8 @@ def _loop_row(loop: LoopSummary, tasks: Sequence[ScheduledTask]) -> dict[str, An
         "cron": loop.cron,
         "timezone": loop.timezone,
         "channels": list(loop.channels),
-        "status": loop.status,
+        # The report is one request, so a status the app rejected would lose every row.
+        "status": loop.stopped_status if loop.never_fires else loop.status,
         "schedule_error": loop.schedule_error,
         "last_run": loop.last_run,
         "next_run": loop.next_run,

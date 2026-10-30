@@ -20,7 +20,10 @@ from infrastructure.scheduling.scheduler.credentials import (
     resolve_telegram_credentials,
     resolve_telegram_default_chat_id,
 )
-from infrastructure.scheduling.scheduler.cron_expression import cap_cron_at_most_hourly
+from infrastructure.scheduling.scheduler.cron_expression import (
+    ImpossibleScheduleError,
+    cap_cron_at_most_hourly,
+)
 from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_CHANNELS_PARAM,
     LOOP_CREATED_BY_PARAM,
@@ -44,6 +47,7 @@ from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_STATUS_ACTIVE,
     LOOP_STATUS_DRAFT,
     LOOP_STATUS_PAUSED,
+    LOOP_STATUS_UNSCHEDULABLE,
     LOOP_TELEGRAM_CHAT_ID_PARAM,
     LOOP_TIME_PARAM,
 )
@@ -139,12 +143,19 @@ class LoopSummary:
     owner: str = ""
     #: The owner's own loop: it runs as them and only they see or change it.
     private: bool = False
+    #: No member's cron has a possible future execution time; ``schedule_error`` says so.
+    never_fires: bool = False
 
     @property
     def status(self) -> str:
-        """Active while enabled; a disabled loop that has run is paused, one that never ran a draft."""
+        """Active while enabled, unless it never fires; otherwise its ``stopped_status``."""
         if self.enabled:
-            return LOOP_STATUS_ACTIVE
+            return LOOP_STATUS_UNSCHEDULABLE if self.never_fires else LOOP_STATUS_ACTIVE
+        return self.stopped_status
+
+    @property
+    def stopped_status(self) -> str:
+        """Paused when the loop has run, a draft when it never ran."""
         return LOOP_STATUS_PAUSED if self.last_run else LOOP_STATUS_DRAFT
 
     @property
@@ -711,9 +722,13 @@ def _summarize_group(
         for task in tasks
         if (notice := task.params.get(LOOP_MIGRATION_NOTICE_PARAM, "").strip())
     ]
+    impossible = 0
     for task in tasks:
         try:
             computed_next_run = compute_next_run(task, now)
+        except ImpossibleScheduleError as exc:
+            impossible += 1
+            schedule_errors.append(str(exc))
         except ValueError as exc:
             schedule_errors.append(str(exc))
         else:
@@ -729,6 +744,7 @@ def _summarize_group(
                 seen_channels.add(provider.value)
 
     last_runs = [task.last_run for task in tasks if task.last_run]
+    never_fires = impossible == len(tasks)
     return LoopSummary(
         id=_loop_group_id(representative),
         task_ids=tuple(task.id for task in tasks),
@@ -744,11 +760,12 @@ def _summarize_group(
         enabled=any(task.enabled for task in tasks),
         window_hours=representative.window_hours,
         last_run=max(last_runs) if last_runs else None,
-        next_run=min(next_runs) if next_runs else representative.next_run,
+        next_run=None if never_fires else min(next_runs, default=representative.next_run),
         schedule_error="; ".join(schedule_errors),
         mode=representative.params.get(LOOP_MODE_PARAM, "").strip() or LOOP_MODE_REPORT,
         owner=loop_owner(representative),
         private=loop_is_private(representative),
+        never_fires=never_fires,
     )
 
 

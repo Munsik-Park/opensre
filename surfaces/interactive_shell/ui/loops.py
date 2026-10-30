@@ -9,6 +9,7 @@ from datetime import UTC, datetime, tzinfo
 from rich.console import Console
 from rich.text import Text
 
+from config.constants.scheduler import NEVER_RUNS_LABEL
 from infrastructure.scheduling.scheduler.local_delivery import LocalLoopMessage
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_MODE_REPORT
 from infrastructure.scheduling.scheduler.loops import LoopSummary
@@ -22,7 +23,7 @@ from surfaces.shared.terminal.components.rendering import (
 from surfaces.shared.terminal.components.time_format import format_repl_timestamp
 from surfaces.shared.terminal.tables.descriptions import description_details
 from surfaces.shared.terminal.tables.records import RecordColumn, RecordRow, RecordTable
-from surfaces.shared.terminal.tables.schedules import schedule_channels
+from surfaces.shared.terminal.tables.schedules import schedule_channels, schedule_problem_label
 
 
 def _timestamp(value: str | None) -> datetime | None:
@@ -52,6 +53,8 @@ def _age(value: str, now: datetime) -> str:
 def _next_run(loop: LoopSummary, now: datetime, local_timezone: tzinfo | None) -> str:
     if not loop.enabled:
         return "Paused"
+    if loop.never_fires:
+        return "Never"
     if loop.schedule_error:
         return "Invalid schedule"
     timestamp = _timestamp(loop.next_run)
@@ -125,7 +128,7 @@ def render_loops(
     timestamp = now or datetime.now(UTC)
     rows: list[RecordRow] = []
     for loop in loops:
-        state = "Invalid" if loop.schedule_error else "Active" if loop.enabled else "Paused"
+        state = schedule_problem_label(loop) or ("Active" if loop.enabled else "Paused")
         state_style = WARNING if loop.schedule_error else HIGHLIGHT if loop.enabled else DIM
         details: list[Text] = []
         run = latest.get(loop.id)
@@ -252,7 +255,10 @@ def render_loop_details(
     console.print(Text("Configuration", style=BOLD_BRAND))
     rows = (
         ("ID", loop.id),
-        ("Status", "Active" if loop.enabled else "Paused"),
+        (
+            "Status",
+            NEVER_RUNS_LABEL if loop.never_fires else "Active" if loop.enabled else "Paused",
+        ),
         ("Schedule", f"{loop.cron} ({loop.timezone})"),
         ("Next run", _exact_time(loop.next_run) if loop.enabled else "Paused"),
         ("Channels", ", ".join(channel.replace("_", " ") for channel in loop.channels)),

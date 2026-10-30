@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from rich.console import Console
 
+from config.constants.scheduler import NEVER_RUNS_LABEL
 from infrastructure.scheduling.scheduler.cron_expression import (
     CRON_FIELD_COUNT,
     CRON_FIELD_COUNT_ERROR,
@@ -20,8 +21,13 @@ from infrastructure.scheduling.scheduler.cron_expression import (
     CRON_FORMAT_HELP,
     build_cron_trigger,
 )
+from infrastructure.terminal.theme import GLYPH_ERROR, GLYPH_SUCCESS
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from rich.table import Table
+
     from infrastructure.scheduling.scheduler.types import ScheduledTask
 
 _console = Console()
@@ -46,6 +52,23 @@ def validate_cron_and_timezone(cron_expr: str, timezone: str) -> None:
         raise SystemExit(1) from exc
 
 
+def _enabled_cell(task: ScheduledTask) -> str:
+    """The ``Enabled`` cell of a per-kind schedule list; a task that never fires gets no success mark."""
+    from infrastructure.scheduling.scheduler.loops import summarize_loop
+
+    if summarize_loop(task).never_fires:
+        return NEVER_RUNS_LABEL
+    return GLYPH_SUCCESS if task.enabled else GLYPH_ERROR
+
+
+def add_enabled_column(table: Table, tasks: Iterable[ScheduledTask]) -> dict[str, str]:
+    """Add the ``Enabled`` column to a per-kind list and return each task's cell by task id."""
+    cells = {task.id: _enabled_cell(task) for task in tasks}
+    # Rich takes a no_wrap column's width from the other columns of a table that does not fit.
+    table.add_column("Enabled", no_wrap=NEVER_RUNS_LABEL in cells.values())
+    return cells
+
+
 def add_task_and_echo(task: ScheduledTask, *, label: str) -> ScheduledTask:
     """Store ``task`` and report the schedule and destination it was created with.
 
@@ -62,4 +85,4 @@ def add_task_and_echo(task: ScheduledTask, *, label: str) -> ScheduledTask:
     return added
 
 
-__all__ = ["add_task_and_echo", "validate_cron_and_timezone"]
+__all__ = ["add_enabled_column", "add_task_and_echo", "validate_cron_and_timezone"]

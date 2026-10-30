@@ -7,9 +7,12 @@ from collections.abc import Mapping
 from prompt_toolkit.application import Application
 
 from config.constants.scheduler import WEEKDAY_CRON_FIELD
-from infrastructure.scheduling.scheduler.cron_expression import build_cron_trigger
+from infrastructure.scheduling.scheduler.cron_expression import ImpossibleScheduleError
 from infrastructure.scheduling.scheduler.loop_constants import LOOP_MODE_REPORT
-from infrastructure.scheduling.scheduler.loop_edit import validate_loop_changes
+from infrastructure.scheduling.scheduler.loop_edit import (
+    keeps_impossible_cron,
+    validate_loop_changes,
+)
 from infrastructure.scheduling.scheduler.loops import LoopSummary, cron_for_time
 from surfaces.shared.terminal.components.input_form import (
     InputChoice,
@@ -83,7 +86,9 @@ def build_loop_edit_form(
                 else loop.cron
             )
             if schedule_changed or values["timezone"] != initial["timezone"]:
-                build_cron_trigger(cron, values["timezone"])
+                keeps_impossible_cron(cron, values["timezone"], loop.cron)
+        except ImpossibleScheduleError as exc:
+            raise InputFormError(str(exc), field="schedule") from exc
         except ValueError as exc:
             field = "timezone" if values["timezone"] != initial["timezone"] else "schedule"
             raise InputFormError(str(exc), field=field) from exc

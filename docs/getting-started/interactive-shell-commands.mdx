@@ -1128,6 +1128,10 @@ with explicit edit options also work without an interactive terminal.
 If you omit the target but supply options, such as `/loops edit --time 09:30`,
 those values are kept for review after you choose a loop.
 
+A loop whose schedule can never fire, such as `0 8 31 2 *`, shows `Never runs`
+and cannot be started. Change its schedule with `/loops edit`, or remove it with
+`/loops delete`.
+
 You can also ask naturally:
 
 ```text
