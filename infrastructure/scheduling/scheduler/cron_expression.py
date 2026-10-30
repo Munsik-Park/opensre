@@ -36,7 +36,7 @@ CRON_FIELD_COUNT_ERROR = (
 _WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 #: Crontab weekday numbers run 0-7; both 0 and 7 are Sunday.
 _CRONTAB_LAST_WEEKDAY = 7
-_CRONTAB_WEEKDAY_ITEM = re.compile(
+_CRONTAB_NUMERIC_ITEM = re.compile(
     r"(?:(?P<every>\*)|(?P<first>\d+)(?:-(?P<last>\d+))?)(?:/(?P<step>\d+))?"
 )
 
@@ -53,7 +53,7 @@ def day_of_week_names(field: str) -> str:
     passthrough: list[str] = []
     days: set[int] = set()
     for item in field.lower().split(","):
-        match = _CRONTAB_WEEKDAY_ITEM.fullmatch(item)
+        match = _CRONTAB_NUMERIC_ITEM.fullmatch(item)
         if match is None or item == "*":
             passthrough.append(item)
         else:
@@ -150,16 +150,26 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
     return False
 
 
-def _earliest_field_value(field: str, maximum: int) -> str:
-    numbers = [int(match) for match in re.findall(r"\d+", field)]
-    allowed = [number for number in numbers if number <= maximum]
-    return str(min(allowed)) if allowed else "0"
+def _earliest_field_value(field: str) -> str:
+    """The earliest value a validated minute or hour field matches.
+
+    Each item starts at its first number, or at 0 for ``*``; a step only
+    spaces the values after that start, so ``*/15`` keeps 0, not 15.
+    """
+    starts = [
+        0 if match["every"] else int(match["first"])
+        for match in map(_CRONTAB_NUMERIC_ITEM.fullmatch, field.split(","))
+        if match is not None
+    ]
+    return str(min(starts, default=0))
 
 
 def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     """Return ``cron``, or a coarser expression that fires at most once an hour.
 
-    A minute list or step (``8,23,38,53``, ``*/15``) keeps its earliest minute.
+    A minute list or step keeps the earliest minute it matches (``8,23,38,53``
+    keeps 8, ``*/15`` keeps 0, ``30-59/15`` keeps 30); a capped hour field
+    keeps its earliest hour the same way.
     A leading seconds field is dropped. Day, month, and weekday stay, so a
     daily schedule is not turned into an hourly one. An expression that
     already waits at least an hour is unchanged, including its whitespace
@@ -171,10 +181,10 @@ def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     parts = normalized.split()
     if len(parts) == CRON_FIELD_COUNT_WITH_SECONDS:
         parts = parts[1:]
-    parts[0] = _earliest_field_value(parts[0], 59)
+    parts[0] = _earliest_field_value(parts[0])
     capped = " ".join(parts)
     if _fires_more_than_hourly(capped, timezone):
-        parts[1] = _earliest_field_value(parts[1], 23)
+        parts[1] = _earliest_field_value(parts[1])
         capped = " ".join(parts)
     return capped
 
