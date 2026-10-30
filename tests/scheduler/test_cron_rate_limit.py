@@ -45,7 +45,7 @@ def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected
 
 
 class _BeforeBerlinFallBack(datetime):
-    """A clock four days before Berlin leaves summer time, when the hour is capped too."""
+    """A clock three days before Berlin leaves summer time, when the hour is capped too."""
 
     @classmethod
     def now(cls, tz: tzinfo | None = None) -> Self:
