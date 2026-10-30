@@ -47,7 +47,6 @@ def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected
 def test_a_capped_hour_field_keeps_its_earliest_hour(
     cron: str, expected: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The real judgment caps the hour only around a DST fold, so it is fixed here.
     monkeypatch.setattr(
         "infrastructure.scheduling.scheduler.cron_expression._fires_more_than_hourly",
         lambda _cron, _timezone: True,

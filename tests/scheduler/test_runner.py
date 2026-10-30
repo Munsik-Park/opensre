@@ -832,8 +832,6 @@ class TestMissedFireCatchUp:
     def test_a_sub_hourly_loop_waits_for_its_capped_hour(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Every five minutes is stored as hourly at :00, so the 02:25 slot is
-        # not caught up when the scheduler starts at 02:26.
         job, stored = _register_after_gap(
             tmp_path,
             monkeypatch,
