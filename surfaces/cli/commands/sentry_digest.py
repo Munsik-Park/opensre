@@ -201,7 +201,7 @@ def sentry_uptime_watch_list() -> None:
     table.add_column("Provider")
     table.add_column("Chat")
     table.add_column("Project")
-    table.add_column("Enabled")
+    table.add_column("Enabled", no_wrap=True)
     table.add_column("Last run")
 
     for task in tasks:
@@ -389,7 +389,7 @@ def sentry_digest_schedule_list() -> None:
     table.add_column("Provider")
     table.add_column("Chat")
     table.add_column("Project")
-    table.add_column("Enabled")
+    table.add_column("Enabled", no_wrap=True)
     table.add_column("Last run")
 
     for task in tasks:

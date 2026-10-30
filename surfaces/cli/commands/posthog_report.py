@@ -185,7 +185,7 @@ def posthog_report_schedule_list() -> None:
     table.add_column("Provider")
     table.add_column("Chat")
     table.add_column("Period")
-    table.add_column("Enabled")
+    table.add_column("Enabled", no_wrap=True)
     table.add_column("Last run")
 
     for task in tasks:
