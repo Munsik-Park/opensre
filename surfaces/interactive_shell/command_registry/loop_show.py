@@ -21,7 +21,6 @@ from surfaces.shared.terminal.components.choice_menu import repl_choose_one, rep
 
 
 def _chooser_row(loop: LoopSummary) -> str:
-    """The menu clips a row's tail, so a warning goes ahead of the name, which has no length cap."""
     warning = f"{NEVER_RUNS_LABEL}  " if loop.never_fires else ""
     return f"{loop.id}  {warning}{' '.join(loop.name.split())}"
 

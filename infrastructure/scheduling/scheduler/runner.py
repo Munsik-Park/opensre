@@ -462,7 +462,6 @@ def _register_jobs(
         try:
             current_task = patch_scheduler_task(listed_task.id, _registration_patch)
         except ImpossibleScheduleError as exc:
-            # An ERROR is a Sentry event, and every reconcile would repeat it for a stored state.
             logger.warning("Skipping task %s: %s", listed_task.id, exc)
             continue
         except ValueError as exc:
