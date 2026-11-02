@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,8 @@ from infrastructure.scheduling.scheduler.storage.task_store import add_task, get
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from tests.scheduler._bundle import real_runners
 
+_CRON_EXPRESSION_MODULE = "infrastructure.scheduling.scheduler.cron_expression"
+
 
 @pytest.mark.parametrize(
     ("cron", "expected"),
@@ -24,7 +27,11 @@ from tests.scheduler._bundle import real_runners
         ("0,15,30,45 * * * *", "0 * * * *"),
         ("4,19,34,49 * * * *", "4 * * * *"),
         ("12,27,42,57 * * * *", "12 * * * *"),
-        ("*/15 * * * *", "15 * * * *"),
+        ("*/15 * * * *", "0 * * * *"),
+        ("5-59/15 * * * *", "5 * * * *"),
+        ("30-59/15 * * * *", "30 * * * *"),
+        ("20/15 * * * *", "20 * * * *"),
+        ("*/20,5 * * * *", "0 * * * *"),
         ("* * * * *", "0 * * * *"),
         ("*/30 * * * * *", "0 * * * *"),
         ("0,30 9 * * 1", "0 9 * * 1"),
@@ -32,6 +39,32 @@ from tests.scheduler._bundle import real_runners
 )
 def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected: str) -> None:
     assert cap_cron_at_most_hourly(cron, "UTC") == expected
+
+
+def test_capped_hour_keeps_the_earliest_hour_of_a_step_on_a_real_fall_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Frozen just before Berlin's 2026-10-25 fall-back, which this case needs ahead of the clock.
+    class _BeforeFallBack(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            _ = tz
+            return datetime(2026, 10, 23, tzinfo=UTC)
+
+    monkeypatch.setattr(f"{_CRON_EXPRESSION_MODULE}.datetime", _BeforeFallBack)
+
+    assert cap_cron_at_most_hourly("*/15 */2 * * *", "Europe/Berlin") == "0 0 * * *"
+
+
+def test_capped_hour_keeps_the_start_of_a_range_with_a_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Replaced so this case reaches the hour cap whatever the date and the tz data.
+    monkeypatch.setattr(
+        f"{_CRON_EXPRESSION_MODULE}._fires_more_than_hourly", lambda _cron, _timezone: True
+    )
+
+    assert cap_cron_at_most_hourly("*/15 9-17/4 * * *", "UTC") == "0 9 * * *"
 
 
 @pytest.mark.parametrize(

@@ -128,6 +128,7 @@ def build_cron_trigger(cron: str, timezone: str | None) -> Any:
 
 _MIN_FIRE_GAP_SECONDS = 60 * 60
 _FIRE_SAMPLES = 48
+_FIELD_SCAN_START = datetime(2000, 1, 1, tzinfo=UTC)
 
 
 def _normalized_cron(cron: str) -> str:
@@ -150,10 +151,14 @@ def _fires_more_than_hourly(cron: str, timezone: str | None) -> bool:
     return False
 
 
-def _earliest_field_value(field: str, maximum: int) -> str:
-    numbers = [int(match) for match in re.findall(r"\d+", field)]
-    allowed = [number for number in numbers if number <= maximum]
-    return str(min(allowed)) if allowed else "0"
+def _first_fire_from_midnight(cron: str) -> datetime:
+    """First fire of a valid ``cron`` that constrains only the field being read.
+
+    Built in UTC, whatever zone the loop uses: in a zone offset from UTC the scan would
+    not start at local midnight and could miss the field's earliest value.
+    """
+    fire: datetime = build_cron_trigger(cron, "UTC").get_next_fire_time(None, _FIELD_SCAN_START)
+    return fire
 
 
 def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
@@ -171,10 +176,10 @@ def cap_cron_at_most_hourly(cron: str, timezone: str | None = None) -> str:
     parts = normalized.split()
     if len(parts) == CRON_FIELD_COUNT_WITH_SECONDS:
         parts = parts[1:]
-    parts[0] = _earliest_field_value(parts[0], 59)
+    parts[0] = str(_first_fire_from_midnight(f"{parts[0]} * * * *").minute)
     capped = " ".join(parts)
     if _fires_more_than_hourly(capped, timezone):
-        parts[1] = _earliest_field_value(parts[1], 23)
+        parts[1] = str(_first_fire_from_midnight(f"0 {parts[1]} * * *").hour)
         capped = " ".join(parts)
     return capped
 
