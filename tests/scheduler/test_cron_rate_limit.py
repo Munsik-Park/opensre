@@ -44,8 +44,7 @@ def test_schedules_faster_than_hourly_collapse_to_one_minute(cron: str, expected
 def test_capped_hour_keeps_the_earliest_hour_of_a_step_on_a_real_fall_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The 2026-10-25 Berlin fall-back gives "0 */2 * * *" two fires on one wall clock,
-    # so the real judgment caps the hour field too.
+    # Frozen just before Berlin's 2026-10-25 fall-back, which this case needs ahead of the clock.
     class _BeforeFallBack(datetime):
         @classmethod
         def now(cls, tz: object = None) -> datetime:
@@ -60,8 +59,7 @@ def test_capped_hour_keeps_the_earliest_hour_of_a_step_on_a_real_fall_back(
 def test_capped_hour_keeps_the_start_of_a_range_with_a_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The real judgment caps the hour field only inside a fall-back window, and this
-    # field's hours fall in none, so the judgment is replaced.
+    # Replaced so this case reaches the hour cap whatever the date and the tz data.
     monkeypatch.setattr(
         f"{_CRON_EXPRESSION_MODULE}._fires_more_than_hourly", lambda _cron, _timezone: True
     )
